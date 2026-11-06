@@ -18,6 +18,10 @@ function errorText(error: unknown): string {
   return error instanceof ApiError || error instanceof Error ? error.message : String(error)
 }
 
+function matchesNarrow(): boolean {
+  return typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 900px)').matches : false
+}
+
 function quoteForReply(detail: MessageDetail): string {
   const body = detail.html ?? `<pre>${detail.text.replaceAll('&', '&amp;').replaceAll('<', '&lt;')}</pre>`
   return `<p><br></p><p>------------------ 原始邮件 ------------------</p><blockquote style="margin:0 0 0 12px;padding-left:12px;border-left:2px solid #d7dbe3;color:#565c67">${body}</blockquote>`
@@ -40,7 +44,7 @@ export function MailPanel(): ReactNode {
   const [showBackup, setShowBackup] = useState(false)
   const [backup, setBackup] = useState<BackupStatus | null>(null)
   const [toast, setToast] = useState('')
-  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 900px)').matches)
+  const [narrow, setNarrow] = useState(() => matchesNarrow())
   const [tick, setTick] = useState(0)
   const account = state?.accounts.find((item) => item.id === state.activeAccountId) ?? null
   const accountId = account?.id ?? null
@@ -130,8 +134,10 @@ export function MailPanel(): ReactNode {
     }
   }, [accountId, source, mailbox, search, limit, tick])
 
-  // Narrow layout follows the viewport.
+  // Narrow layout follows the viewport. Host pages without matchMedia keep the
+  // wide layout, which still works because both panes are scrollable.
   useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
     const media = window.matchMedia('(max-width: 900px)')
     const onChange = (): void => setNarrow(media.matches)
     media.addEventListener('change', onChange)
