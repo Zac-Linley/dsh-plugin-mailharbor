@@ -84,7 +84,7 @@
     "changeset": "changeset",
     "version": "changeset version && node scripts/sync-version.mjs",
     "release": "npm run check && npm publish",
-    "release:ci": "npm publish --provenance --access public"
+    "release:ci": "changeset publish"
   },
   "dependencies": {
     "imapflow": "^2.11.0",
