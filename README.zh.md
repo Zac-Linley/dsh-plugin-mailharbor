@@ -14,22 +14,37 @@ MailHarbor 在 DSH 左侧栏加一个「邮件」入口，主面板里是完整�
 - 包名：`@zaclinley/dsh-mailharbor`
 - 要求：**DSH `>=0.2.2-0 <0.3.0`**，Node **>=24.9**（DSH 自带运行时即可）
 - 许可证：MIT
-- 状态：**v0.1.0 — 核心邮件工作区**。OAuth2、AI 动作和 CalDAV 在路线图中（见[路线图](#路线图)）。
+- 状态：**v0.3.0 — 核心邮件工作区 + AI 辅助**（中文摘要、AI 回复、翻译、写作风格）。OAuth2 与 CalDAV 是下一步（见[路线图](#路线图)）。
 
 ## 功能
 
-| 区域       | 能做什么                                                                                              |
-| ---------- | ----------------------------------------------------------------------------------------------------- |
-| 账号       | 任意 IMAP/SMTP 邮箱；密码或应用专用密码；每账号独立数据目录；顶栏切换账号                             |
-| 本地备份   | 增量 IMAP → SQLite：UIDVALIDITY 处理、分批事务、内容寻址附件、trigram 全文索引                        |
-| 浏览       | 文件夹、分页、按主题/发件人/收件人/正文/附件名搜索                                                    |
-| 服务器实时 | 直接从 IMAP 读取最新邮件，每行标注「已备份 / 未备份」                                                 |
-| 阅读       | sandbox iframe + 严格 CSP 渲染 HTML，远程图片默认拦截，纯文本回退，附件下载                           |
-| 写邮件     | 富文本正文、附件（8 MB）、回复/全部回复/转发（`In-Reply-To` 与 `References`）、存草稿、二次确认后发送 |
-| 凭据       | macOS 钥匙串、Linux libsecret、Windows Credential Locker；密码不写入 `config.json`                    |
-| Agent 工具 | `mail_status`、`mail_list`、`mail_read`、`mail_search`、`mail_drafts`、`mail_draft`、`mail_backup`    |
-| 设置页     | DSH 设置里的「MailHarbor」：账号与服务器、连接检查、签名、已读行为、列表数量、AI 模型                 |
-| 工程化     | 真实构建链、GitHub Actions CI、Changesets 版本管理、npm provenance                                    |
+| 区域       | 能做什么                                                                                                                            |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 账号       | 任意 IMAP/SMTP 邮箱；密码或应用专用密码；每账号独立数据目录；顶栏切换                                                               |
+| 统一收件箱 | 所有账号合并列表与搜索，每封标注所属账号                                                                                            |
+| 本地备份   | 增量 IMAP → SQLite：UIDVALIDITY 处理、分批事务、内容寻址附件、trigram 全文索引                                                      |
+| 浏览       | 文件夹、分页、按主题/发件人/收件人/正文/附件名搜索                                                                                  |
+| 服务器实时 | 直接从 IMAP 读取最新邮件，支持加载更多，每行标注「已备份 / 未备份」                                                                 |
+| 阅读       | sandbox iframe + 严格 CSP 渲染 HTML，远程图片默认拦截，纯文本回退，附件下载                                                         |
+| 写邮件     | 富文本正文、附件（8 MB）、回复/全部回复/转发（`In-Reply-To` 与 `References`）、草稿、二次确认后发送                                 |
+| 草稿       | 存草稿后在「草稿」文件夹里列出，点开继续编辑、可删除                                                                                |
+| AI         | 中文摘要（结论 / 需要你做什么 / 关键信息 / 建议回复要点）、AI 回复（可写要点、选中/英）、正文一键中英互译、从已发送邮件学习写作风格 |
+| 凭据       | macOS 钥匙串、Linux libsecret、Windows Credential Locker；密码不写入 `config.json`                                                  |
+| Agent 工具 | `mail_status`、`mail_list`、`mail_read`、`mail_search`、`mail_drafts`、`mail_draft`、`mail_backup`                                  |
+| 设置页     | DSH 设置 → MailHarbor：账号与服务器、连接检查、签名、已读行为、列表数量、AI 模型与写作风格                                          |
+| 工程化     | 真实构建链、GitHub Actions CI、Changesets 版本管理、npm provenance                                                                  |
+
+## 界面
+
+| 统一收件箱                                                                                                        | 阅读页                                                                                                         |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| ![统一收件箱](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/panel.png) | ![阅读页](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/reader.png) |
+
+| AI 摘要（中文）                                                                                                     | 从已发送邮件学习的写作风格                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| ![AI 摘要](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/ai-summary.png) | ![AI 设置](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/settings-ai.png) |
+
+> 截图使用 `node scripts/seed-demo.mjs` 生成的虚构演示数据，不含真实邮件。
 
 ## 安装
 
@@ -98,6 +113,7 @@ node node_modules/@zaclinley/dsh-mailharbor/scripts/migrate-legacy.mjs --copy
 - HTML 邮件在 `sandbox` iframe 中渲染，CSP 为 `default-src 'none'`；脚本、表单不执行，远程图片默认不加载。
 - HTTP 接口只监听 DSH 自己的回环端口，跨站写请求返回 `403`。
 - `mail_*` 工具不能发信：没有 `mail_send`，发送必须由用户在面板里确认。
+- AI 通过 DSH 自己的 `ctx.llm` 调用，关闭后不会发送任何内容；写作风格只保存提炼后的档案，不保存邮件原文。
 
 ## Agent 工具
 
@@ -154,8 +170,8 @@ CI 会在 `main` 上通过 `.github/workflows/release.yml` 发布；仓库需要
 | --------- | --------------------------------------------------------------------- |
 | **0.1.x** | 核心邮件工作区、备份、工具、设置、发布流水线                          |
 | 0.2       | 界面重做、从 `dsh-plugin-mail` 迁移数据、安装体验                     |
-| 0.3       | OAuth2 + XOAUTH2（Gmail loopback/PKCE、Microsoft 设备码）、token 刷新 |
-| 0.4       | AI 摘要、起草辅助、自然语言搜索、写作风格档案                         |
+| 0.3       | 草稿、统一收件箱、服务器分页、AI 摘要/回复/翻译、写作风格             |
+| 0.4       | OAuth2 + XOAUTH2（Gmail loopback/PKCE、Microsoft 设备码）、token 刷新 |
 | 0.5       | CalDAV 任务、Markdown/PDF 报告                                        |
 | 以后      | 导出/导入、引导流程、更完整的附件支持                                 |
 

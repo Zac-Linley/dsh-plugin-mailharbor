@@ -1,8 +1,17 @@
 import { createElement as h, useMemo, useState, type ReactNode } from 'react'
-import type { Account, MessageDetail } from '../shared/types.js'
-import { api } from './api.js'
-import { Avatar, formatBytes, longDate } from './components.js'
+import type { MessageDetail } from '../shared/types.js'
+import { api, type SummaryBlock } from './api.js'
+import { Avatar, formatBytes, longDate, Modal } from './components.js'
 import { Icon } from './icons.js'
+
+export interface AiReplyInit {
+  to: string
+  cc: string
+  subject: string
+  html: string
+  inReplyTo?: string
+  references?: string
+}
 
 const IFRAME_STYLE = `
   html, body { margin: 0; padding: 0; }
@@ -40,6 +49,16 @@ function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
+function textToHtml(text: string): string {
+  return text
+    .split(/\n{2,}/)
+    .map(
+      (paragraph) =>
+        `<p>${paragraph.trim().replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('\n', '<br>')}</p>`,
+    )
+    .join('')
+}
+
 function hasRemoteImages(detail: MessageDetail): boolean {
   return detail.html !== null && /<img[^>]+src=["']https?:/i.test(detail.html)
 }
@@ -48,27 +67,43 @@ function addressLine(list: { name: string; address: string }[]): string {
   return list.map((item) => (item.name !== '' ? `${item.name} <${item.address}>` : item.address)).join('、')
 }
 
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 export function Reader({
   detail,
-  account,
   source,
   mailbox,
   onChanged,
   onReply,
+  onAiReply,
   onClose,
 }: {
   detail: MessageDetail
-  account: Account
   source: 'local' | 'server'
   mailbox: string
   onChanged: (patch: Partial<MessageDetail>) => void
   onReply: (mode: 'reply' | 'replyAll' | 'forward') => void
+  onAiReply: (init: AiReplyInit) => void
   onClose?: () => void
 }): ReactNode {
   const [plain, setPlain] = useState(false)
   const [loadImages, setLoadImages] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summaryBusy, setSummaryBusy] = useState(false)
+  const [summaryError, setSummaryError] = useState('')
+  const [summaryBlocks, setSummaryBlocks] = useState<SummaryBlock[]>([])
+
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [replyBusy, setReplyBusy] = useState(false)
+  const [replyError, setReplyError] = useState('')
+  const [replyInstruction, setReplyInstruction] = useState('')
+  const [replyLanguage, setReplyLanguage] = useState<'zh' | 'en'>('zh')
+  const [replyText, setReplyText] = useState('')
 
   const remoteImages = useMemo(() => hasRemoteImages(detail), [detail])
   const html = detail.html !== null && detail.html !== ''
@@ -79,17 +114,79 @@ export function Reader({
     try {
       const result = await api.setRead({
         id: detail.id,
-        accountId: account.id,
+        accountId: detail.accountId,
         source,
         mailbox,
         read: detail.unread,
       })
       onChanged({ unread: !result.read })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught))
+      setError(errorText(caught))
     } finally {
       setBusy(false)
     }
+  }
+
+  const openSummary = async (): Promise<void> => {
+    setSummaryOpen(true)
+    setSummaryBusy(true)
+    setSummaryError('')
+    setSummaryBlocks([])
+    try {
+      const result = await api.aiSummary({
+        accountId: detail.accountId,
+        source,
+        id: detail.id,
+        mailbox,
+      })
+      setSummaryBlocks(result.blocks)
+    } catch (caught) {
+      setSummaryError(errorText(caught))
+    } finally {
+      setSummaryBusy(false)
+    }
+  }
+
+  const openReply = (): void => {
+    setReplyOpen(true)
+    setReplyText('')
+    setReplyError('')
+    setReplyInstruction('')
+    setReplyLanguage('zh')
+  }
+
+  const generateReply = async (): Promise<void> => {
+    setReplyBusy(true)
+    setReplyError('')
+    try {
+      const result = await api.aiReply({
+        accountId: detail.accountId,
+        source,
+        id: detail.id,
+        mailbox,
+        instruction: replyInstruction,
+        language: replyLanguage,
+      })
+      setReplyText(result.text)
+    } catch (caught) {
+      setReplyError(errorText(caught))
+    } finally {
+      setReplyBusy(false)
+    }
+  }
+
+  const insertReply = (): void => {
+    const subject = /^re:/i.test(detail.subject) ? detail.subject : `Re: ${detail.subject}`
+    onAiReply({
+      to: detail.from.address,
+      cc: '',
+      subject,
+      html: textToHtml(replyText),
+      ...(detail.messageId === ''
+        ? {}
+        : { inReplyTo: detail.messageId, references: [...detail.references, detail.messageId].join(' ') }),
+    })
+    setReplyOpen(false)
   }
 
   return h(
@@ -161,6 +258,9 @@ export function Reader({
           h(Icon, { name: 'forward' }),
           '转发',
         ),
+        h('span', { className: 'mailharbor-divider' }),
+        h('button', { className: 'ghost', onClick: () => void openSummary() }, 'AI 摘要'),
+        h('button', { className: 'ghost', onClick: openReply }, 'AI 回复'),
         h('span', { className: 'spacer' }),
         html
           ? h(
@@ -206,14 +306,14 @@ export function Reader({
                 href:
                   source === 'server'
                     ? api.attachmentUrl({
-                        accountId: account.id,
+                        accountId: detail.accountId,
                         source: 'server',
                         mailbox,
                         uid: detail.uid ?? '',
                         part: file.id,
                       })
                     : api.attachmentUrl({
-                        accountId: account.id,
+                        accountId: detail.accountId,
                         source: 'local',
                         emailId: detail.id,
                         attachmentId: file.id,
@@ -227,5 +327,127 @@ export function Reader({
             ),
           ),
         ),
+    summaryOpen
+      ? h(
+          Modal,
+          {
+            title: 'AI 摘要',
+            onClose: () => setSummaryOpen(false),
+            footer: h(
+              'div',
+              { style: { display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end' } },
+              h('button', { className: 'ghost', onClick: () => setSummaryOpen(false) }, '关闭'),
+              summaryBlocks.length === 0
+                ? null
+                : h(
+                    'button',
+                    {
+                      className: 'primary',
+                      onClick: () => {
+                        void navigator.clipboard
+                          ?.writeText(
+                            summaryBlocks.map((block) => `${block.title}\n${block.body}`).join('\n\n'),
+                          )
+                          .then(() => setSummaryOpen(false))
+                      },
+                    },
+                    '复制',
+                  ),
+            ),
+          },
+          summaryBusy ? '正在阅读并总结…' : null,
+          summaryError === '' ? null : h('div', { style: { color: 'var(--m-danger)' } }, summaryError),
+          summaryBlocks.length === 0
+            ? null
+            : h(
+                'div',
+                { className: 'mailharbor-summary' },
+                summaryBlocks.map((block, index) =>
+                  h(
+                    'section',
+                    { key: `${block.title}:${String(index)}` },
+                    block.title === '' ? null : h('h4', null, block.title),
+                    h('p', null, block.body),
+                  ),
+                ),
+              ),
+        )
+      : null,
+    replyOpen
+      ? h(
+          Modal,
+          {
+            title: 'AI 回复',
+            onClose: () => setReplyOpen(false),
+            footer: h(
+              'div',
+              { style: { display: 'flex', gap: '8px', width: '100%', alignItems: 'center' } },
+              h('span', { className: 'small muted' }, '生成后可在正文里继续修改，发送仍需你确认'),
+              h('span', { className: 'spacer' }),
+              h('button', { className: 'ghost', onClick: () => setReplyOpen(false) }, '取消'),
+              h(
+                'button',
+                { className: 'ghost', onClick: () => void generateReply(), disabled: replyBusy },
+                replyBusy ? '生成中…' : replyText === '' ? '生成回复' : '重新生成',
+              ),
+              h(
+                'button',
+                {
+                  className: 'primary',
+                  onClick: insertReply,
+                  disabled: replyBusy || replyText.trim() === '',
+                },
+                '插入到正文',
+              ),
+            ),
+          },
+          h(
+            'div',
+            { className: 'mailharbor-grid' },
+            h(
+              'div',
+              { className: 'mailharbor-field' },
+              h('label', null, '想让 AI 怎么写（可留空）'),
+              h('input', {
+                value: replyInstruction,
+                placeholder: '例如：确认收到，说明周五前给答复',
+                onChange: (event: { target: { value: string } }) => setReplyInstruction(event.target.value),
+              }),
+            ),
+            h(
+              'div',
+              { className: 'mailharbor-field' },
+              h('label', null, '语言'),
+              h(
+                'div',
+                { className: 'mailharbor-segment' },
+                h(
+                  'button',
+                  {
+                    className: replyLanguage === 'zh' ? 'active' : '',
+                    onClick: () => setReplyLanguage('zh'),
+                  },
+                  '中文',
+                ),
+                h(
+                  'button',
+                  {
+                    className: replyLanguage === 'en' ? 'active' : '',
+                    onClick: () => setReplyLanguage('en'),
+                  },
+                  'English',
+                ),
+              ),
+            ),
+          ),
+          replyError === '' ? null : h('div', { style: { color: 'var(--m-danger)' } }, replyError),
+          h('textarea', {
+            rows: 12,
+            value: replyText,
+            placeholder: replyBusy ? '正在生成…' : '点「生成回复」让 AI 起草，结果会显示在这里',
+            onChange: (event: { target: { value: string } }) => setReplyText(event.target.value),
+          }),
+        )
+      : null,
   )
 }

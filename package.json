@@ -84,7 +84,8 @@
     "changeset": "changeset",
     "version": "changeset version && node scripts/sync-version.mjs",
     "release": "npm run check && npm publish",
-    "release:ci": "changeset publish"
+    "release:ci": "changeset publish",
+    "seed:demo": "node scripts/seed-demo.mjs"
   },
   "dependencies": {
     "imapflow": "^2.11.0",

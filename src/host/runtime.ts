@@ -2,6 +2,8 @@ import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Account, BackupStatus, ImapSettings } from '../shared/types.js'
 import { CredentialManager } from './accounts.js'
+import { AiService } from './ai.js'
+import type { DshLlm } from './dsh.js'
 import { BackupEngine } from './backup.js'
 import { DraftStore, draftPath } from './drafts.js'
 import {
@@ -12,6 +14,7 @@ import {
   loadConfig,
   requireAccount,
 } from './config.js'
+import { accountDataDir } from './paths.js'
 import { ImapProvider, type ImapCredentials } from './imap.js'
 import { MailDatabase } from './mail-db.js'
 import { ReadStateStore } from './read-state.js'
@@ -44,11 +47,34 @@ export class MailHarborRuntime {
   private readonly draftStores = new Map<string, SignatureEntry<DraftStore>>()
   private readonly readStores = new Map<string, SignatureEntry<ReadStateStore>>()
   private readonly backups = new Map<string, BackupJob>()
+  private readonly llmProvider: () => DshLlm | undefined
+  private aiService: AiService | null = null
   private disposed = false
 
-  constructor(options: { credentials?: CredentialManager } = {}) {
+  constructor(options: { credentials?: CredentialManager; llm?: () => DshLlm | undefined } = {}) {
     this.config = loadConfig()
     this.credentials = options.credentials ?? new CredentialManager()
+    this.llmProvider = options.llm ?? (() => undefined)
+  }
+
+  /** The Host model service, when the composition provides one. */
+  llm(): DshLlm | undefined {
+    try {
+      return this.llmProvider()
+    } catch {
+      return undefined
+    }
+  }
+
+  ai(): AiService {
+    if (this.aiService === null) {
+      this.aiService = new AiService({
+        config: () => this.config,
+        llm: () => this.llm(),
+        accountRoot: (account) => accountDataDir(account),
+      })
+    }
+    return this.aiService
   }
 
   get current(): MailHarborConfig {

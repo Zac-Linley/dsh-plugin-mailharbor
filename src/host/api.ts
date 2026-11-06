@@ -25,6 +25,8 @@ import {
 } from './config.js'
 import { BackupEngine } from './backup.js'
 import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestContext } from './http.js'
+import { summaryBlocks, textToHtml } from './ai.js'
+import { VERSION } from './version.js'
 import type { MailHarborRuntime } from './runtime.js'
 import type { ImapProvider } from './imap.js'
 import { verifySmtp } from './smtp.js'
@@ -79,35 +81,64 @@ function buildRouter(runtime: MailHarborRuntime): Router {
   router.get('/state', () => appState(runtime))
 
   router.get('/folders', async ({ url }) => {
-    const { account } = accountFrom(runtime, url)
     const source = sourceOf(url)
+    const requested = url.searchParams.get('accountId')
+    if (source === 'server' && requested === 'all') {
+      throw new HttpError(400, '统一收件箱暂只支持本地备份')
+    }
+    const accounts =
+      requested === 'all'
+        ? runtime.current.accounts.filter((item) => item.enabled !== false)
+        : [accountFrom(runtime, url).account]
     if (source === 'server') {
-      const provider = runtime.provider(account)
+      const provider = runtime.provider(accounts[0] as Account)
       const boxes = await provider.mailboxes()
       return {
         items: boxes.map((box) => ({ name: box.path, label: box.name, count: box.messages })),
       }
     }
-    return { items: runtime.database(account).mailboxes() }
+    const counts = new Map<string, number>()
+    let drafts = 0
+    for (const account of accounts) {
+      try {
+        for (const box of runtime.database(account).mailboxes()) {
+          counts.set(box.name, (counts.get(box.name) ?? 0) + box.count)
+        }
+      } catch {
+        // An account without a backup simply contributes no folders.
+      }
+      try {
+        drafts += runtime.drafts(account).list().length
+      } catch {
+        // Ignore a broken drafts file.
+      }
+    }
+    const items = [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((left, right) => right.count - left.count)
+    items.unshift({ name: '__drafts', count: drafts })
+    return { items }
   })
 
   router.get('/messages', async ({ url }) => {
-    const { account } = accountFrom(runtime, url)
     const source = sourceOf(url)
+    const requested = url.searchParams.get('accountId')
     const mailbox = url.searchParams.get('mailbox') ?? 'all'
     const query = url.searchParams.get('query') ?? ''
     const offset = Number(url.searchParams.get('offset') ?? 0)
     const limit = Number(url.searchParams.get('limit') ?? runtime.current.render.listLimit)
+    if (requested === 'all') {
+      if (source === 'server') throw new HttpError(400, '统一收件箱暂只支持本地备份')
+      return listAllAccounts(runtime, { mailbox, query, offset, limit })
+    }
+    const { account } = accountFrom(runtime, url)
     if (source === 'server') {
-      const items = await listServer(runtime, account, mailbox, query, limit)
-      return { ...items, offset: 0, limit }
+      const items = await listServer(runtime, account, mailbox, query, limit, offset)
+      return { ...items, offset, limit }
     }
-    const db = runtime.database(account)
-    if (mailbox !== 'all' && mailbox !== '') {
-      const page = db.list({ mailbox, query, offset, limit })
-      return { ...page, items: page.items.map((item) => localSummary(runtime, account, item)) }
-    }
-    const page = db.list({ mailbox: 'all', query, offset, limit })
+    const page = runtime
+      .database(account)
+      .list({ mailbox: mailbox === '' ? 'all' : mailbox, query, offset, limit })
     return { ...page, items: page.items.map((item) => localSummary(runtime, account, item)) }
   })
 
@@ -115,15 +146,7 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     const { account } = accountFrom(runtime, url)
     const source = sourceOf(url)
     const mailbox = url.searchParams.get('mailbox') ?? 'INBOX'
-    const id = params.id ?? ''
-    if (source === 'server') {
-      const provider = runtime.provider(account)
-      const message = await provider.read(mailbox, Number(id))
-      return serverDetail(runtime, account, message, mailbox)
-    }
-    const detail = runtime.database(account).get(Number(id))
-    if (detail === undefined) throw new HttpError(404, '邮件不存在')
-    return localDetail(runtime, account, detail)
+    return loadDetail(runtime, account, source, params.id ?? '', mailbox)
   })
 
   router.post('/messages/:id/read', async ({ url, params, body }) => {
@@ -203,17 +226,28 @@ function buildRouter(runtime: MailHarborRuntime): Router {
   })
 
   router.get('/unread', async ({ url }) => {
-    const { account } = accountFrom(runtime, url)
-    if (!runtime.hasCredentials(account)) {
-      return { unread: runtime.readState(account).count(), source: 'local' }
-    }
-    try {
-      const provider = runtime.provider(account)
-      const result = await provider.unseen()
-      return { unread: result.count, source: 'server' }
-    } catch {
-      return { unread: runtime.readState(account).count(), source: 'local' }
-    }
+    const requested = url.searchParams.get('accountId')
+    const accounts =
+      requested === null || requested === '' || requested === 'all'
+        ? runtime.current.accounts.filter((item) => item.enabled !== false)
+        : [accountById(runtime, requested)]
+    let server = 0
+    let answered = 0
+    await Promise.all(
+      accounts.map(async (account) => {
+        if (!runtime.hasCredentials(account)) return
+        try {
+          const result = await runtime.provider(account).unseen()
+          server += result.count
+          answered += 1
+        } catch {
+          // An unreachable server falls back to the local counter.
+        }
+      }),
+    )
+    if (answered > 0) return { unread: server, source: 'server' }
+    const local = accounts.reduce((sum, account) => sum + runtime.readState(account).count(), 0)
+    return { unread: local, source: 'local' }
   })
 
   router.get('/accounts', () => ({ accounts: runtime.current.accounts }))
@@ -330,6 +364,95 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     return { ok: true, imap, smtp }
   })
 
+  router.get('/ai/status', ({ url }) => {
+    const requested = url.searchParams.get('accountId')
+    const account =
+      requested !== null && requested !== '' && requested !== 'all'
+        ? runtime.current.accounts.find((item) => item.id === requested)
+        : runtime.active()
+    return runtime.ai().status(account ?? null)
+  })
+
+  router.get('/ai/models', async () => ({ providers: await runtime.ai().models() }))
+
+  router.post('/ai/summary', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const detail = await loadDetail(
+      runtime,
+      account,
+      sourceOfPayload(payload),
+      String(payload.id ?? ''),
+      mailboxOfPayload(payload),
+    )
+    try {
+      const summary = await runtime.ai().summarize(detail)
+      return { summary, blocks: summaryBlocks(summary) }
+    } catch (error) {
+      throw aiHttpError(error)
+    }
+  })
+
+  router.post('/ai/reply', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const detail = await loadDetail(
+      runtime,
+      account,
+      sourceOfPayload(payload),
+      String(payload.id ?? ''),
+      mailboxOfPayload(payload),
+    )
+    const language = payload.language === 'en' ? 'en' : 'zh'
+    const instruction = typeof payload.instruction === 'string' ? payload.instruction : ''
+    try {
+      const text = await runtime.ai().reply(account, detail, { instruction, language })
+      return { text, html: textToHtml(text) }
+    } catch (error) {
+      throw aiHttpError(error)
+    }
+  })
+
+  router.post('/ai/translate', async ({ body }) => {
+    const payload = await body()
+    const html = typeof payload.html === 'string' ? payload.html : ''
+    const target = payload.target === 'en' ? 'en' : 'zh'
+    try {
+      const text = await runtime.ai().translate(html, target)
+      return { text, html: /<[a-z][\s\S]*>/i.test(text) ? text : textToHtml(text) }
+    } catch (error) {
+      throw aiHttpError(error)
+    }
+  })
+
+  router.get('/ai/style', ({ url }) => {
+    const account = accountFromPayload(runtime, { accountId: url.searchParams.get('accountId') ?? undefined })
+    return { style: runtime.ai().style(account) }
+  })
+
+  router.put('/ai/style', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    try {
+      const style = runtime.ai().saveStyle(account, String(payload.profile ?? ''))
+      return { style }
+    } catch (error) {
+      throw aiHttpError(error)
+    }
+  })
+
+  router.post('/ai/style/learn', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    try {
+      const samples = runtime.database(account).sentMessages(100)
+      const style = await runtime.ai().learnStyle(account, samples)
+      return { style }
+    } catch (error) {
+      throw aiHttpError(error)
+    }
+  })
+
   router.get('/settings', () => settingsView(runtime.current))
 
   router.patch('/settings', async ({ body }) => {
@@ -364,7 +487,77 @@ function buildRouter(runtime: MailHarborRuntime): Router {
   return router
 }
 
-const VERSION = '0.1.0'
+/** Load one message from either source; shared by the mail and AI routes. */
+async function loadDetail(
+  runtime: MailHarborRuntime,
+  account: Account,
+  source: 'local' | 'server',
+  id: string,
+  mailbox: string,
+): Promise<MessageDetail> {
+  if (source === 'server') {
+    const message = await runtime.provider(account).read(mailbox, Number(id))
+    return serverDetail(runtime, account, message, mailbox)
+  }
+  const detail = runtime.database(account).get(Number(id))
+  if (detail === undefined) throw new HttpError(404, '邮件不存在')
+  return localDetail(runtime, account, detail)
+}
+
+/** Merge the local backup of every enabled account into one newest-first page. */
+function listAllAccounts(
+  runtime: MailHarborRuntime,
+  options: { mailbox: string; query: string; offset: number; limit: number },
+): Page<MessageSummary> {
+  const accounts = runtime.current.accounts.filter((item) => item.enabled !== false)
+  const collected: MessageSummary[] = []
+  let total = 0
+  for (const account of accounts) {
+    try {
+      const page = runtime.database(account).list({
+        mailbox: options.mailbox === '' ? 'all' : options.mailbox,
+        query: options.query,
+        offset: 0,
+        limit: options.offset + options.limit,
+      })
+      total += page.total
+      for (const item of page.items) collected.push(localSummary(runtime, account, item))
+    } catch {
+      // An account without a backup contributes nothing.
+    }
+  }
+  collected.sort((left, right) => right.date.localeCompare(left.date))
+  return {
+    items: collected.slice(options.offset, options.offset + options.limit),
+    total,
+    offset: options.offset,
+    limit: options.limit,
+  }
+}
+
+function accountFromPayload(runtime: MailHarborRuntime, payload: Record<string, unknown>): Account {
+  const requested = typeof payload.accountId === 'string' ? payload.accountId : ''
+  if (requested !== '' && requested !== 'all') {
+    const found = runtime.current.accounts.find((item) => item.id === requested)
+    if (found !== undefined) return found
+  }
+  const active = runtime.active()
+  if (active !== null) return active
+  throw new HttpError(400, '请先添加一个邮箱账号')
+}
+
+function sourceOfPayload(payload: Record<string, unknown>): 'local' | 'server' {
+  return payload.source === 'server' ? 'server' : 'local'
+}
+
+function mailboxOfPayload(payload: Record<string, unknown>): string {
+  return typeof payload.mailbox === 'string' && payload.mailbox !== '' ? payload.mailbox : 'INBOX'
+}
+
+function aiHttpError(error: unknown): HttpError {
+  if (error instanceof HttpError) return error
+  return new HttpError(400, error instanceof Error ? error.message : String(error))
+}
 
 function accountById(runtime: MailHarborRuntime, id: string | undefined): Account {
   const account = runtime.current.accounts.find((item) => item.id === id)
@@ -549,9 +742,10 @@ async function listServer(
   mailbox: string,
   query: string,
   limit: number,
+  offset = 0,
 ): Promise<Omit<Page<MessageSummary>, 'offset' | 'limit'>> {
   const provider = runtime.provider(account)
-  const result = await provider.list(mailbox === 'all' ? 'INBOX' : mailbox, Math.min(200, limit * 2))
+  const result = await provider.list(mailbox === 'all' ? 'INBOX' : mailbox, Math.min(200, limit * 2), offset)
   let database: ReturnType<MailHarborRuntime['database']> | null = null
   try {
     database = runtime.database(account)

@@ -1,5 +1,5 @@
 import { createApiHandler } from './api.js'
-import type { DshContext } from './dsh.js'
+import type { DshContext, DshLlm } from './dsh.js'
 import { MailHarborRuntime } from './runtime.js'
 import { registerMailTools } from './tools.js'
 
@@ -7,8 +7,7 @@ import { registerMailTools } from './tools.js'
 export const name = 'mailharbor'
 /** Host services this plugin needs: the HTTP carrier and the tool registry. */
 export const inject = ['webServer', 'tools']
-/** Keep in sync with package.json (`npm run version` does this). */
-export const VERSION = '0.2.1'
+export { VERSION } from './version.js'
 
 const ROUTE = '/mail-plugin'
 
@@ -17,7 +16,16 @@ const ROUTE = '/mail-plugin'
  * tools when the composition provides the tool registry.
  */
 export function apply(ctx: DshContext): void {
-  const runtime = new MailHarborRuntime()
+  const runtime = new MailHarborRuntime({
+    llm: () => {
+      if (typeof ctx.get !== 'function') return undefined
+      try {
+        return ctx.get.call(ctx, 'llm') as DshLlm | undefined
+      } catch {
+        return undefined
+      }
+    },
+  })
   const handler = createApiHandler(runtime)
   const disposers: (() => void)[] = []
 

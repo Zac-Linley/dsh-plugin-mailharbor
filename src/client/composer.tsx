@@ -5,6 +5,7 @@ import { Field, Modal } from './components.js'
 
 export interface ComposeInit {
   mode: 'new' | 'reply' | 'replyAll' | 'forward'
+  accountId?: string
   to: string
   cc: string
   bcc: string
@@ -53,6 +54,8 @@ export function Composer({
   const [error, setError] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [draftId, setDraftId] = useState(initial.draftId)
+  const [translating, setTranslating] = useState<'zh' | 'en' | null>(null)
+  const [pendingLang, setPendingLang] = useState<'zh' | 'en' | null>(null)
   const editor = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -67,6 +70,25 @@ export function Composer({
   const exec = (command: string, value?: string): void => {
     editor.current?.focus()
     document.execCommand(command, false, value)
+  }
+
+  const translate = async (target: 'zh' | 'en'): Promise<void> => {
+    if (editor.current === null) return
+    if (html().trim() === '') {
+      setError('正文为空，无法翻译')
+      return
+    }
+    setPendingLang(null)
+    setTranslating(target)
+    setError('')
+    try {
+      const result = await api.aiTranslate({ accountId: account.id, html: html(), target })
+      editor.current.innerHTML = result.html
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setTranslating(null)
+    }
   }
 
   const addFiles = async (files: FileList | null): Promise<void> => {
@@ -255,6 +277,16 @@ export function Composer({
       h('button', { onClick: () => exec('removeFormat'), title: '清除格式' }, '清除'),
       h('span', { className: 'spacer' }),
       h(
+        'button',
+        { onClick: () => setPendingLang('zh'), disabled: translating !== null, title: 'AI 翻译成中文' },
+        translating === 'zh' ? '翻译中…' : '中',
+      ),
+      h(
+        'button',
+        { onClick: () => setPendingLang('en'), disabled: translating !== null, title: 'AI 翻译成英文' },
+        translating === 'en' ? '…' : 'EN',
+      ),
+      h(
         'label',
         { className: 'mailharbor-toggle small' },
         '附件',
@@ -269,6 +301,16 @@ export function Composer({
         }),
       ),
     ),
+    pendingLang === null
+      ? null
+      : h(
+          'div',
+          { className: 'mailharbor-confirm' },
+          h('span', null, pendingLang === 'en' ? '把正文翻译成英文？' : '把正文翻译成中文？'),
+          h('span', { className: 'spacer' }),
+          h('button', { className: 'ghost', onClick: () => setPendingLang(null) }, '取消'),
+          h('button', { className: 'primary', onClick: () => void translate(pendingLang) }, '翻译'),
+        ),
     attachments.length === 0
       ? null
       : h(

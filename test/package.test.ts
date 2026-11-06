@@ -62,7 +62,7 @@ describe('package manifest', () => {
   it('keeps the patch layer and the VERSION constants in sync', () => {
     const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
     expect(patch).toContain(pkg.name)
-    for (const file of ['src/host/index.ts', 'src/client/index.tsx']) {
+    for (const file of ['src/host/version.ts', 'src/client/index.tsx']) {
       const source = readFileSync(join(root, file), 'utf8')
       expect(source).toContain(`export const VERSION = '${pkg.version}'`)
     }

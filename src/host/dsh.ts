@@ -42,9 +42,31 @@ export interface DshTools {
   register(definition: DshToolDefinition): () => void
 }
 
+export interface DshLlmChunk {
+  type: string
+  text?: string
+  reason?: {
+    kind?: string
+    failure?: { message?: string; code?: string }
+  }
+}
+
+export interface DshLlm {
+  stream(options: {
+    provider: string
+    model: string
+    messages: { role: string; content: { type: string; text: string }[] }[]
+    signal?: AbortSignal
+  }): AsyncIterable<DshLlmChunk>
+  listProviders(): { id: string; name?: string }[]
+  listModels(provider: string): Promise<{ id: string; name?: string }[]>
+}
+
 export interface DshContext {
   webServer: DshWebServer
   tools: DshTools
+  /** Cordis service lookup; returns undefined when the service is absent. */
+  get?: (name: string) => unknown
   effect?: (effect: () => (() => void) | void, label?: string) => void
   logger?: (name: string) => {
     info(message: string): void

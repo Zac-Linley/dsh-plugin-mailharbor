@@ -34,7 +34,26 @@ beforeAll(async () => {
     smtp: { host: 'smtp.example.com', port: 465, secure: true, fromName: '' },
   })
   accountId = account.id
-  saveAccounts([account], account.id)
+  const second = normalizeAccount({
+    email: 'other@example.com',
+    label: 'Second',
+    imap: { host: 'imap.example.com', port: 993, secure: true },
+    smtp: { host: 'smtp.example.com', port: 465, secure: true, fromName: '' },
+  })
+  saveAccounts([account, second], account.id)
+
+  // A second mailbox so the unified inbox has something to merge.
+  const secondDir = join(dir, 'accounts', second.id)
+  mkdirSync(secondDir, { recursive: true })
+  ensureMailSchema(join(secondDir, 'mail.db'))
+  const secondDb = new DatabaseSync(join(secondDir, 'mail.db'))
+  secondDb
+    .prepare(
+      `INSERT INTO emails (mailbox, uid, subject, from_name, from_addr, to_addr, cc, date, message_id, body_text, body_html)
+     VALUES ('Sent Items', 3, 'Re: Hello there', 'Me', 'me@example.com', 'alice@example.com', '', '2026-11-02 10:00:00', 'm2@example.com', 'Sent body', '')`,
+    )
+    .run()
+  secondDb.close()
 
   const accountDir = join(dir, 'accounts', account.id)
   mkdirSync(join(accountDir, 'attachments', 'ab', 'cd'), { recursive: true })
@@ -51,7 +70,15 @@ beforeAll(async () => {
   ).run()
   db.close()
 
-  runtime = new MailHarborRuntime()
+  const fakeLlm = {
+    async *stream() {
+      yield { type: 'text-delta', text: '结论\n需要复核预算。\n\n需要你做什么\n- 周五前确认' }
+      yield { type: 'finish', reason: { kind: 'ok' } }
+    },
+    listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
+    listModels: async () => [{ id: 'deepseek-flash', name: 'Flash' }],
+  }
+  runtime = new MailHarborRuntime({ llm: () => fakeLlm as never })
   runtime.credentials.remember(account, 'secret', false)
   const handler = createApiHandler(runtime)
   server = createServer((req, res) => {
@@ -94,7 +121,18 @@ describe('mail API', () => {
     const folders = (await (await request('/mail-plugin/api/folders?source=local')).json()) as {
       items: { name: string; count: number }[]
     }
-    expect(folders.items).toEqual([{ name: 'INBOX', count: 1 }])
+    expect(folders.items).toEqual([
+      { name: '__drafts', count: 0 },
+      { name: 'INBOX', count: 1 },
+    ])
+    const all = (await (await request('/mail-plugin/api/folders?source=local&accountId=all')).json()) as {
+      items: { name: string; count: number }[]
+    }
+    expect(all.items).toEqual([
+      { name: '__drafts', count: 0 },
+      { name: 'INBOX', count: 1 },
+      { name: 'Sent Items', count: 1 },
+    ])
 
     const page = (await (await request('/mail-plugin/api/messages?source=local&mailbox=INBOX')).json()) as {
       total: number
@@ -163,6 +201,47 @@ describe('mail API', () => {
   it('returns 404 for an unknown route', async () => {
     const response = await request('/mail-plugin/api/nope')
     expect(response.status).toBe(404)
+  })
+
+  it('merges every account into the unified inbox', async () => {
+    const page = (await (
+      await request('/mail-plugin/api/messages?accountId=all&source=local&mailbox=all')
+    ).json()) as {
+      total: number
+      items: { subject: string; accountId: string }[]
+    }
+    expect(page.total).toBe(2)
+    expect(page.items.map((item) => item.subject).sort()).toEqual(['Hello there', 'Re: Hello there'])
+    expect(new Set(page.items.map((item) => item.accountId)).size).toBe(2)
+    expect(await (await request('/mail-plugin/api/messages?accountId=all&source=server')).status).toBe(400)
+  })
+
+  it('exposes AI status, summary and translation', async () => {
+    const status = (await (await request('/mail-plugin/api/ai/status')).json()) as {
+      available: boolean
+      enabled: boolean
+    }
+    expect(status.available).toBe(true)
+    expect(status.enabled).toBe(true)
+
+    const summary = (await (
+      await request('/mail-plugin/api/ai/summary', {
+        method: 'POST',
+        headers: { origin: base, 'content-type': 'application/json' },
+        body: JSON.stringify({ accountId, source: 'local', id: '1', mailbox: 'INBOX' }),
+      })
+    ).json()) as { summary: string; blocks: { title: string; body: string }[] }
+    expect(summary.summary).toContain('需要复核')
+    expect(summary.blocks[0]?.title).toBe('结论')
+
+    const translated = (await (
+      await request('/mail-plugin/api/ai/translate', {
+        method: 'POST',
+        headers: { origin: base, 'content-type': 'application/json' },
+        body: JSON.stringify({ accountId, html: '<p>你好</p>', target: 'en' }),
+      })
+    ).json()) as { html: string }
+    expect(translated.html).toContain('<p>')
   })
 
   it('exports draft CRUD', async () => {

@@ -63,6 +63,31 @@ function query(params: Record<string, string | number | undefined | null>): stri
   return text === '' ? '' : `?${text}`
 }
 
+export interface AiStatus {
+  available: boolean
+  enabled: boolean
+  provider: string
+  model: string
+  styleUpdatedAt: string
+  styleSampleCount: number
+  error?: string
+}
+
+export interface StyleProfile {
+  profile: string
+  updatedAt: string
+  sampleCount: number
+}
+
+export interface AiModels {
+  providers: { provider: string; name: string; models: { id: string; name: string }[] }[]
+}
+
+export interface SummaryBlock {
+  title: string
+  body: string
+}
+
 export interface ListParams {
   accountId?: string | null
   source: 'local' | 'server'
@@ -158,6 +183,56 @@ export const api = {
       imap: { ok: true; mailboxes: { name: string; count: number }[] }
       smtp: { ok: boolean; error?: string }
     }>(`accounts/${encodeURIComponent(id)}/check`, { method: 'POST' }),
+
+  aiStatus: (accountId?: string | null) =>
+    request<AiStatus>(`ai/status${query({ accountId: accountId ?? null })}`),
+
+  aiModels: () => request<AiModels>('ai/models'),
+
+  aiSummary: (payload: {
+    accountId?: string | null
+    source: 'local' | 'server'
+    id: string
+    mailbox: string
+  }) =>
+    request<{ summary: string; blocks: SummaryBlock[] }>('ai/summary', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  aiReply: (payload: {
+    accountId?: string | null
+    source: 'local' | 'server'
+    id: string
+    mailbox: string
+    instruction?: string
+    language?: 'zh' | 'en'
+  }) =>
+    request<{ text: string; html: string }>('ai/reply', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  aiTranslate: (payload: { accountId?: string | null; html: string; target: 'zh' | 'en' }) =>
+    request<{ text: string; html: string }>('ai/translate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  aiStyle: (accountId?: string | null) =>
+    request<{ style: StyleProfile | null }>(`ai/style${query({ accountId: accountId ?? null })}`),
+
+  aiSaveStyle: (accountId: string | null, profile: string) =>
+    request<{ style: StyleProfile }>(`ai/style${query({ accountId: accountId ?? null })}`, {
+      method: 'PUT',
+      body: JSON.stringify({ accountId, profile }),
+    }),
+
+  aiLearnStyle: (accountId?: string | null) =>
+    request<{ style: StyleProfile }>(`ai/style/learn${query({ accountId: accountId ?? null })}`, {
+      method: 'POST',
+      body: JSON.stringify({ accountId: accountId ?? null }),
+    }),
 
   settings: () => request<SettingsView>('settings'),
 

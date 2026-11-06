@@ -297,6 +297,21 @@ export class MailDatabase {
     }
   }
 
+  /** Recent sent messages, for learning the user's writing style. */
+  sentMessages(limit = 100): { subject: string; text: string }[] {
+    const rows = this.open()
+      .prepare(
+        `SELECT subject, body_text FROM emails
+         WHERE lower(mailbox) LIKE '%sent%' OR mailbox LIKE '%已发送%'
+         ORDER BY date DESC, id DESC LIMIT ?`,
+      )
+      .all(limit)
+    return rows.map((row) => ({
+      subject: String(row.subject ?? ''),
+      text: String(row.body_text ?? ''),
+    }))
+  }
+
   /** Latest backup runs, for the settings page. */
   backupSummary(): {
     ok: boolean

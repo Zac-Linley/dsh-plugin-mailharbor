@@ -1,6 +1,6 @@
 import { createElement as h, useEffect, useState, type ReactNode } from 'react'
 import type { Account, AppState, SettingsView } from '../shared/types.js'
-import { api, ApiError } from './api.js'
+import { api, ApiError, type AiModels, type AiStatus } from './api.js'
 import { AddAccountForm } from './account-form.js'
 import { Avatar, ErrorBar, Field, Toggle } from './components.js'
 
@@ -20,6 +20,11 @@ export function MailSettings(): ReactNode {
   const [aiEnabled, setAiEnabled] = useState(true)
   const [aiProvider, setAiProvider] = useState('deepseek-account')
   const [aiModel, setAiModel] = useState('deepseek-flash')
+  const [aiModels, setAiModels] = useState<AiModels>({ providers: [] })
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null)
+  const [styleText, setStyleText] = useState('')
+  const [styleMeta, setStyleMeta] = useState({ updatedAt: '', sampleCount: 0 })
+  const [styleBusy, setStyleBusy] = useState<'save' | 'learn' | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [checkResult, setCheckResult] = useState<string>('')
   const [adding, setAdding] = useState(false)
@@ -47,6 +52,37 @@ export function MailSettings(): ReactNode {
       cancelled = true
     }
   }, [tick])
+
+  useEffect(() => {
+    let cancelled = false
+    const accountId = settings?.activeAccountId ?? state?.activeAccountId ?? null
+    if (accountId === null) return
+    Promise.all([api.aiStatus(accountId), api.aiModels(), api.aiStyle(accountId)])
+      .then(([status, models, style]) => {
+        if (cancelled) return
+        setAiStatus(status)
+        setAiModels(models)
+        setStyleText(style.style?.profile ?? '')
+        setStyleMeta({
+          updatedAt: style.style?.updatedAt ?? '',
+          sampleCount: style.style?.sampleCount ?? 0,
+        })
+        const preferred =
+          models.providers.find((item) => item.provider === status.provider) ?? models.providers[0]
+        if (preferred !== undefined && status.provider === '') {
+          setAiProvider(preferred.provider)
+          const firstModel = preferred.models[0]
+          if (firstModel !== undefined) setAiModel(firstModel.id)
+        }
+      })
+      .catch(() => {
+        // AI status is optional; the panel still works without a model service.
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, settings?.activeAccountId])
 
   const reload = (): void => setTick((value) => value + 1)
 
@@ -212,34 +248,153 @@ export function MailSettings(): ReactNode {
             setAiEnabled(value)
             void saveGeneral({ ai: { enabled: value } })
           },
-          label: '启用 AI（摘要、起草、润色、自然语言搜索）',
+          label: '启用 AI（摘要、AI 回复、翻译、写作风格）',
         }),
+        aiStatus === null
+          ? null
+          : h(
+              'div',
+              { className: 'small', style: { color: aiStatus.available ? 'var(--m-ok)' : 'var(--m-warn)' } },
+              aiStatus.available
+                ? `模型服务可用 · ${aiStatus.provider} / ${aiStatus.model}`
+                : (aiStatus.error ?? '当前 DSH 组合没有可用的模型服务'),
+            ),
         h(
           'div',
           { className: 'mailharbor-grid' },
           h(
             Field,
             { label: 'Provider' },
-            h('input', {
-              value: aiProvider,
-              onChange: (event: { target: { value: string } }) => setAiProvider(event.target.value),
-              onBlur: () => void saveGeneral({ ai: { provider: aiProvider } }),
-            }),
+            aiModels.providers.length === 0
+              ? h('input', {
+                  value: aiProvider,
+                  onChange: (event: { target: { value: string } }) => setAiProvider(event.target.value),
+                  onBlur: () => void saveGeneral({ ai: { provider: aiProvider } }),
+                })
+              : h(
+                  'select',
+                  {
+                    value: aiProvider,
+                    onChange: (event: { target: { value: string } }) => {
+                      setAiProvider(event.target.value)
+                      const provider = aiModels.providers.find((item) => item.provider === event.target.value)
+                      const first = provider?.models[0]
+                      if (first !== undefined) setAiModel(first.id)
+                      void saveGeneral({
+                        ai: {
+                          provider: event.target.value,
+                          ...(first === undefined ? {} : { model: first.id }),
+                        },
+                      })
+                    },
+                  },
+                  aiModels.providers.map((item) =>
+                    h('option', { key: item.provider, value: item.provider }, item.name),
+                  ),
+                ),
           ),
           h(
             Field,
             { label: '模型' },
-            h('input', {
-              value: aiModel,
-              onChange: (event: { target: { value: string } }) => setAiModel(event.target.value),
-              onBlur: () => void saveGeneral({ ai: { model: aiModel } }),
-            }),
+            (() => {
+              const provider = aiModels.providers.find((item) => item.provider === aiProvider)
+              return provider === undefined || provider.models.length === 0
+                ? h('input', {
+                    value: aiModel,
+                    onChange: (event: { target: { value: string } }) => setAiModel(event.target.value),
+                    onBlur: () => void saveGeneral({ ai: { model: aiModel } }),
+                  })
+                : h(
+                    'select',
+                    {
+                      value: aiModel,
+                      onChange: (event: { target: { value: string } }) => {
+                        setAiModel(event.target.value)
+                        void saveGeneral({ ai: { model: event.target.value } })
+                      },
+                    },
+                    provider.models.map((item) => h('option', { key: item.id, value: item.id }, item.name)),
+                  )
+            })(),
+          ),
+        ),
+        h('hr', null),
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          h('strong', { style: { fontSize: '12.5px' } }, '写作风格'),
+          h(
+            'span',
+            { className: 'small muted' },
+            styleMeta.updatedAt === ''
+              ? '还没有生成'
+              : `${styleMeta.sampleCount} 封已发送邮件 · ${new Date(styleMeta.updatedAt).toLocaleString()}`,
           ),
         ),
         h(
           'p',
           { className: 'small muted' },
-          'AI 调用走 DSH 自己的模型服务，不额外保存密钥。AI 面板功能将在 v0.2 提供。',
+          '从已发送邮件学习你的称呼、结尾、语气和常用表达，AI 回复时会参考它。只保存提炼后的档案，不保存邮件原文。',
+        ),
+        h('textarea', {
+          rows: 6,
+          value: styleText,
+          placeholder: '点「从已发送邮件学习」生成，或直接写一段你的写作风格',
+          onChange: (event: { target: { value: string } }) => setStyleText(event.target.value),
+        }),
+        h(
+          'div',
+          { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+          h(
+            'button',
+            {
+              className: 'ghost',
+              disabled: styleBusy !== null,
+              onClick: () => {
+                const accountId = settings.activeAccountId
+                if (accountId === null) return
+                setStyleBusy('learn')
+                setError('')
+                api
+                  .aiLearnStyle(accountId)
+                  .then((result) => {
+                    setStyleText(result.style.profile)
+                    setStyleMeta({ updatedAt: result.style.updatedAt, sampleCount: result.style.sampleCount })
+                    notify('已根据已发送邮件生成写作风格')
+                  })
+                  .catch((caught: unknown) => setError(errorText(caught)))
+                  .finally(() => setStyleBusy(null))
+              },
+            },
+            styleBusy === 'learn' ? '学习中…' : '从已发送邮件学习',
+          ),
+          h(
+            'button',
+            {
+              className: 'primary',
+              disabled: styleBusy !== null || styleText.trim() === '',
+              onClick: () => {
+                const accountId = settings.activeAccountId
+                if (accountId === null) return
+                setStyleBusy('save')
+                setError('')
+                api
+                  .aiSaveStyle(accountId, styleText)
+                  .then((result) => {
+                    setStyleMeta({ updatedAt: result.style.updatedAt, sampleCount: result.style.sampleCount })
+                    notify('写作风格已保存')
+                  })
+                  .catch((caught: unknown) => setError(errorText(caught)))
+                  .finally(() => setStyleBusy(null))
+              },
+            },
+            '保存风格',
+          ),
+        ),
+        h(
+          'p',
+          { className: 'small muted' },
+          'AI 调用走 DSH 自己的模型服务，不额外保存密钥；发送仍然只由你确认。',
         ),
       ),
 
@@ -255,7 +410,13 @@ export function MailSettings(): ReactNode {
           h('dt', null, '配置文件'),
           h('dd', null, settings.configFile),
           h('dt', null, '当前账号数据库'),
-          h('dd', null, account === null ? '—' : `${settings.dataDir}/accounts/${account.id}/mail.db`),
+          h(
+            'dd',
+            null,
+            account === null
+              ? '—'
+              : `${account.dataDir.startsWith('/') ? account.dataDir : `${settings.dataDir}/${account.dataDir}`}/mail.db`,
+          ),
           h('dt', null, '插件版本'),
           h('dd', null, state.version),
         ),

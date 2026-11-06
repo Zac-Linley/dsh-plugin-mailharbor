@@ -213,15 +213,16 @@ export class ImapProvider {
     return result
   }
 
-  async list(mailbox: string, limit: number): Promise<{ total: number; items: ImapMessage[] }> {
+  async list(mailbox: string, limit: number, offset = 0): Promise<{ total: number; items: ImapMessage[] }> {
     return this.run(async (client) => {
       const lock = await client.getMailboxLock(mailbox)
       try {
         const total = Number((client.mailbox as { exists?: number } | undefined)?.exists ?? 0)
-        if (total === 0) return { total: 0, items: [] }
-        const start = Math.max(1, total - limit + 1)
+        const end = total - offset
+        if (total === 0 || end < 1) return { total, items: [] }
+        const start = Math.max(1, end - limit + 1)
         const items: ImapMessage[] = []
-        for await (const message of client.fetch(`${String(start)}:*`, {
+        for await (const message of client.fetch(`${String(start)}:${String(end)}`, {
           uid: true,
           envelope: true,
           flags: true,
