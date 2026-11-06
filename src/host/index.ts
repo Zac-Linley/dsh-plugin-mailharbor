@@ -8,7 +8,7 @@ export const name = 'mailharbor'
 /** Host services this plugin needs: the HTTP carrier and the tool registry. */
 export const inject = ['webServer', 'tools']
 /** Keep in sync with package.json (`npm run version` does this). */
-export const VERSION = '0.2.0'
+export const VERSION = '0.2.1'
 
 const ROUTE = '/mail-plugin'
 
