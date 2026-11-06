@@ -5,7 +5,7 @@ import { MailSettings } from './settings.js'
 import type { ClientContext } from './dsh.js'
 
 /** Keep in sync with package.json (`npm run version` does this). */
-export const VERSION = '0.1.0'
+export const VERSION = '0.2.0'
 
 /** Services required by this browser plugin. */
 export const inject = ['slots']
