@@ -66,6 +66,24 @@ dsh plugin --profile desktop add link:$PWD
 - Microsoft 365：基本认证已停用；只有租户仍允许 IMAP AUTH 时才能用应用专用密码，否则等 OAuth2 版本。
 - Yahoo：应用专用密码。自建邮箱：任何支持 STARTTLS 或隐式 TLS 的 IMAP/SMTP 都可以。
 
+## 从 `dsh-plugin-mail` 迁移
+
+包名改了，数据根目录也从 `~/.dsh/mail-plugin` 换到了 `~/.dsh/mailharbor`。安装包里附带迁移脚本：
+
+```bash
+# 只预览，不写入
+node node_modules/@zaclinley/dsh-mailharbor/scripts/migrate-legacy.mjs --dry-run
+
+# 默认：新账号直接指向旧备份目录（不复制，秒级完成，8 GB 数据库原地保留）
+node node_modules/@zaclinley/dsh-mailharbor/scripts/migrate-legacy.mjs
+
+# 或者复制一份到新数据目录（占用双倍磁盘）
+node node_modules/@zaclinley/dsh-mailharbor/scripts/migrate-legacy.mjs --copy
+```
+
+脚本按邮箱匹配账号，改写 `dataDir`，把已读状态和草稿转换成新结构，并把 macOS 钥匙串密码复制到
+新的 service 名下。OAuth2 账号会跳过（等 OAuth 支持发布）。迁移完重启 DSH，Host 才会重新打开数据库。
+
 ## 数据与隐私
 
 | 内容             | 位置                                                                  |
@@ -135,9 +153,10 @@ CI 会在 `main` 上通过 `.github/workflows/release.yml` 发布；仓库需要
 | 版本      | 范围                                                                  |
 | --------- | --------------------------------------------------------------------- |
 | **0.1.x** | 核心邮件工作区、备份、工具、设置、发布流水线                          |
-| 0.2       | OAuth2 + XOAUTH2（Gmail loopback/PKCE、Microsoft 设备码）、token 刷新 |
-| 0.3       | AI 摘要、起草辅助、自然语言搜索、写作风格档案                         |
-| 0.4       | CalDAV 任务、Markdown/PDF 报告                                        |
+| 0.2       | 界面重做、从 `dsh-plugin-mail` 迁移数据、安装体验                     |
+| 0.3       | OAuth2 + XOAUTH2（Gmail loopback/PKCE、Microsoft 设备码）、token 刷新 |
+| 0.4       | AI 摘要、起草辅助、自然语言搜索、写作风格档案                         |
+| 0.5       | CalDAV 任务、Markdown/PDF 报告                                        |
 | 以后      | 导出/导入、引导流程、更完整的附件支持                                 |
 
 ## 许可证

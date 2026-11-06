@@ -69,6 +69,26 @@ dsh plugin --profile desktop add link:$PWD
   AUTH, otherwise wait for the OAuth2 release.
 - Yahoo: app password. Self-hosted: any IMAP/SMTP endpoints with STARTTLS or implicit TLS.
 
+## Migrating from `dsh-plugin-mail`
+
+The package was renamed and the data root moved (`~/.dsh/mail-plugin` → `~/.dsh/mailharbor`).
+A migration script ships with the package:
+
+```bash
+# preview what would change
+node node_modules/@zaclinley/dsh-mailharbor/scripts/migrate-legacy.mjs --dry-run
+
+# point the new account at the existing backup (no copy; instant, keeps the large DB in place)
+node node_modules/@zaclinley/dsh-mailharbor/scripts/migrate-legacy.mjs
+
+# or make a self-contained copy under the new data root
+node node_modules/@zaclinley/dsh-mailharbor/scripts/migrate-legacy.mjs --copy
+```
+
+It matches accounts by email, repoints `dataDir`, converts read-state keys and drafts to the new
+shapes, and copies the macOS Keychain password to the new service name. OAuth2 accounts are skipped
+until OAuth support ships. Restart DSH afterwards so the Host reopens the database.
+
 ## Data and privacy
 
 | What                    | Where                                                                                |
@@ -139,9 +159,10 @@ must be able to publish `@zaclinley/*`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 | Version   | Scope                                                                        |
 | --------- | ---------------------------------------------------------------------------- |
 | **0.1.x** | Core mail workspace, backup, tools, settings, publishing pipeline            |
-| 0.2       | OAuth2 + XOAUTH2 (Gmail loopback/PKCE, Microsoft device code), token refresh |
-| 0.3       | AI summaries, compose assist, natural-language search, writing style profile |
-| 0.4       | CalDAV tasks, Markdown/PDF reports                                           |
+| 0.2       | UI overhaul, migration from `dsh-plugin-mail`, installer polish              |
+| 0.3       | OAuth2 + XOAUTH2 (Gmail loopback/PKCE, Microsoft device code), token refresh |
+| 0.4       | AI summaries, compose assist, natural-language search, writing style profile |
+| 0.5       | CalDAV tasks, Markdown/PDF reports                                           |
 | Later     | Export/import, onboarding, richer attachments                                |
 
 ## Star history

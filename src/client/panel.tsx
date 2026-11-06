@@ -4,6 +4,7 @@ import { api, ApiError } from './api.js'
 import { AddAccountForm, AddAccountModal, LoginForm } from './account-form.js'
 import { Avatar, ErrorBar, Modal, shortDate } from './components.js'
 import { Composer, type ComposeInit } from './composer.js'
+import { Icon } from './icons.js'
 import { Reader } from './reader.js'
 
 interface Folder {
@@ -66,7 +67,10 @@ export function MailPanel(): ReactNode {
     api
       .state()
       .then((next) => {
-        if (!cancelled) setState(next)
+        if (!cancelled) {
+          setState(next)
+          if (next.settings.render.listLimit > 0) setLimit(next.settings.render.listLimit)
+        }
       })
       .catch((caught: unknown) => {
         if (!cancelled) setError(errorText(caught))
@@ -109,8 +113,6 @@ export function MailPanel(): ReactNode {
   useEffect(() => {
     setMailbox(source === 'local' ? 'all' : 'INBOX')
     setSelected(null)
-    setLimit(state?.settings.render.listLimit ?? 40)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source])
 
   // Message page.
@@ -134,8 +136,7 @@ export function MailPanel(): ReactNode {
     }
   }, [accountId, source, mailbox, search, limit, tick])
 
-  // Narrow layout follows the viewport. Host pages without matchMedia keep the
-  // wide layout, which still works because both panes are scrollable.
+  // Narrow layout follows the viewport.
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return
     const media = window.matchMedia('(max-width: 900px)')
@@ -273,10 +274,12 @@ export function MailPanel(): ReactNode {
     [folders],
   )
 
-  const unreadCount = page.items.filter((item) => item.unread).length
-
   if (state === null) {
-    return h('div', { className: 'mailharbor mailharbor-empty' }, error === '' ? '正在加载邮箱…' : error)
+    return h(
+      'div',
+      { className: 'mailharbor' },
+      h('div', { className: 'mailharbor-empty' }, error === '' ? '正在加载邮箱…' : error),
+    )
   }
 
   if (account === null) {
@@ -290,7 +293,7 @@ export function MailPanel(): ReactNode {
         h(
           'p',
           { className: 'muted small' },
-          '把任意 IMAP/SMTP 邮箱接进 DeepSeek Harness：本地备份、实时读信、写邮件、AI 与任务。',
+          '把任意 IMAP/SMTP 邮箱接进 DeepSeek Harness：本地备份、实时读信、写邮件与 Agent 工具。',
         ),
         error === '' ? null : h('div', { className: 'small', style: { color: 'var(--m-danger)' } }, error),
         h(AddAccountForm, {
@@ -304,6 +307,7 @@ export function MailPanel(): ReactNode {
   }
 
   const needsLogin = source === 'server' && state.loggedIn === false
+  const items = page.items
 
   return h(
     'div',
@@ -311,18 +315,23 @@ export function MailPanel(): ReactNode {
     h(
       'div',
       { className: 'mailharbor-topbar' },
-      h(Avatar, { email: account.email, size: 26 }),
-      state.accounts.length > 1
-        ? h(
-            'select',
-            {
-              value: account.id,
-              onChange: (event: { target: { value: string } }) => void switchAccount(event.target.value),
-              'aria-label': '账号',
-            },
-            state.accounts.map((item) => h('option', { key: item.id, value: item.id }, item.label)),
-          )
-        : h('span', { className: 'small' }, account.label),
+      h(
+        'div',
+        { className: 'mailharbor-account' },
+        h(Avatar, { email: account.email, size: 26 }),
+        state.accounts.length > 1
+          ? h(
+              'select',
+              {
+                value: account.id,
+                onChange: (event: { target: { value: string } }) => void switchAccount(event.target.value),
+                'aria-label': '账号',
+              },
+              state.accounts.map((item) => h('option', { key: item.id, value: item.id }, item.label)),
+            )
+          : h('span', { className: 'name' }, account.label),
+        state.loggedIn === false ? h('span', { className: 'badge warn' }, '未登录') : null,
+      ),
       h(
         'div',
         { className: 'mailharbor-segment', role: 'tablist' },
@@ -338,24 +347,37 @@ export function MailPanel(): ReactNode {
         ),
       ),
       h('span', { className: 'spacer' }),
-      state.loggedIn === false ? h('span', { className: 'badge warn' }, '未登录') : null,
-      h('button', { className: 'ghost', onClick: () => setShowAdd(true), title: '添加账号' }, '+ 账号'),
-      h('button', { className: 'primary', onClick: () => startCompose('new') }, '写邮件'),
-      h('button', { className: 'ghost', onClick: () => void startBackup() }, '备份'),
       h(
         'button',
         {
-          className: 'ghost',
-          onClick: () => {
-            refresh()
-          },
+          className: 'ghost icon',
+          title: '添加账号',
+          'aria-label': '添加账号',
+          onClick: () => setShowAdd(true),
         },
-        '刷新',
+        h(Icon, { name: 'plus' }),
+      ),
+      h(
+        'button',
+        { className: 'ghost icon', title: '刷新列表', 'aria-label': '刷新列表', onClick: refresh },
+        h(Icon, { name: 'refresh' }),
+      ),
+      h(
+        'button',
+        { className: 'ghost', onClick: () => void startBackup() },
+        h(Icon, { name: 'archive' }),
+        '备份',
+      ),
+      h(
+        'button',
+        { className: 'primary', onClick: () => startCompose('new') },
+        h(Icon, { name: 'compose' }),
+        '写邮件',
       ),
     ),
     toast === ''
       ? null
-      : h('div', { className: 'small', style: { padding: '6px 12px', color: 'var(--m-ok)' } }, toast),
+      : h('div', { className: 'small', style: { padding: '6px 14px', color: 'var(--m-ok)' } }, toast),
     error === '' ? null : h(ErrorBar, { message: error, onDismiss: () => setError('') }),
     needsLogin
       ? h('div', { className: 'mailharbor-settings' }, h(LoginForm, { account, onDone: refresh }))
@@ -385,6 +407,7 @@ export function MailPanel(): ReactNode {
               h('input', {
                 type: 'search',
                 placeholder: '搜索邮件',
+                'aria-label': '搜索邮件',
                 value: query,
                 onChange: (event: { target: { value: string } }) => setQuery(event.target.value),
                 onKeyDown: (event: { key: string }) => {
@@ -399,45 +422,66 @@ export function MailPanel(): ReactNode {
                 ? h(
                     'button',
                     {
-                      className: 'subtle small',
+                      className: 'subtle',
+                      title: '清除搜索',
                       onClick: () => {
                         setQuery('')
                         setSearch('')
                       },
                     },
-                    '清除',
+                    h(Icon, { name: 'close', size: 14 }),
                   )
                 : null,
             ),
             h(
               'div',
               { className: 'mailharbor-rows' },
-              loading && page.items.length === 0
+              loading && items.length === 0
                 ? h('div', { className: 'mailharbor-empty' }, '正在读取…')
-                : page.items.length === 0
+                : items.length === 0
                   ? h(
                       'div',
                       { className: 'mailharbor-empty' },
-                      source === 'local'
-                        ? '本地备份里还没有邮件。点顶部「备份」把服务器邮件同步下来。'
-                        : '服务器上没有邮件。',
-                    )
-                  : page.items.map((item) =>
+                      h(Icon, { name: 'mail', size: 28 }),
                       h(
-                        'button',
+                        'div',
+                        { className: 'title' },
+                        source === 'local' ? '本地备份里还没有邮件' : '服务器上没有邮件',
+                      ),
+                      h(
+                        'div',
+                        { className: 'small' },
+                        source === 'local'
+                          ? '点顶部「备份」把服务器邮件同步下来。'
+                          : '换一个文件夹或稍后刷新。',
+                      ),
+                    )
+                  : items.map((item) =>
+                      h(
+                        'div',
                         {
                           key: item.id,
                           className: `mailharbor-row${item.unread ? ' unread' : ''}${selected?.id === item.id ? ' selected' : ''}`,
+                          role: 'button',
+                          tabIndex: 0,
                           onClick: () => void openMessage(item),
+                          onKeyDown: (event: { key: string; preventDefault: () => void }) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              void openMessage(item)
+                            }
+                          },
                         },
                         h(
                           'span',
                           { className: 'line-1' },
+                          item.unread ? h('span', { className: 'dot' }) : null,
                           h(
                             'span',
                             { className: 'from' },
                             item.from.name !== '' ? item.from.name : item.from.address,
                           ),
+                          item.hasAttachments ? h(Icon, { name: 'paperclip', size: 13 }) : null,
                           item.backedUp === false ? h('span', { className: 'badge warn' }, '未备份') : null,
                           h('span', { className: 'date' }, shortDate(item.date)),
                         ),
@@ -445,26 +489,22 @@ export function MailPanel(): ReactNode {
                         item.snippet === '' ? null : h('span', { className: 'snippet' }, item.snippet),
                       ),
                     ),
-              page.items.length > 0
-                ? h(
-                    'div',
-                    { style: { padding: '10px 12px', display: 'flex', gap: '8px', alignItems: 'center' } },
-                    h(
-                      'span',
-                      { className: 'small muted' },
-                      `${String(page.items.length)} / ${String(page.total)} 封${unreadCount > 0 ? ` · ${String(unreadCount)} 未读` : ''}`,
-                    ),
-                    h('span', { className: 'spacer' }),
-                    page.total > page.items.length
-                      ? h(
-                          'button',
-                          { className: 'subtle small', onClick: () => setLimit((current) => current + 40) },
-                          '加载更多',
-                        )
-                      : null,
-                  )
-                : null,
             ),
+            items.length > 0
+              ? h(
+                  'div',
+                  { className: 'mailharbor-list-foot' },
+                  h('span', null, `${String(items.length)} / ${String(page.total)} 封`),
+                  h('span', { className: 'spacer' }),
+                  page.total > items.length
+                    ? h(
+                        'button',
+                        { className: 'subtle', onClick: () => setLimit((current) => current + 40) },
+                        '加载更多',
+                      )
+                    : null,
+                )
+              : null,
           ),
           h(
             'div',
@@ -473,9 +513,10 @@ export function MailPanel(): ReactNode {
               ? h(
                   'div',
                   { className: 'mailharbor-empty' },
-                  h('p', null, '从左侧选择一封邮件'),
+                  h(Icon, { name: 'mail', size: 34 }),
+                  h('div', { className: 'title' }, '选择一封邮件开始阅读'),
                   h(
-                    'p',
+                    'div',
                     { className: 'small' },
                     state.loggedIn
                       ? '已登录，可切换「服务器实时」查看最新邮件。'
@@ -505,7 +546,7 @@ export function MailPanel(): ReactNode {
               h('span', { className: 'small muted' }, backup.running ? '备份进行中…' : backup.message),
               h('span', { className: 'spacer' }),
               backup.running
-                ? h('button', { className: 'danger ghost', onClick: () => void stopBackup() }, '停止备份')
+                ? h('button', { className: 'ghost danger', onClick: () => void stopBackup() }, '停止备份')
                 : h('button', { className: 'primary', onClick: () => void startBackup() }, '开始备份'),
               h('button', { className: 'ghost', onClick: () => setShowBackup(false) }, '关闭'),
             ),

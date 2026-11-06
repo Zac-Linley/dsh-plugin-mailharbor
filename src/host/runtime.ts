@@ -16,6 +16,11 @@ import { ImapProvider, type ImapCredentials } from './imap.js'
 import { MailDatabase } from './mail-db.js'
 import { ReadStateStore } from './read-state.js'
 
+interface SignatureEntry<T> {
+  signature: string
+  value: T
+}
+
 export interface BackupJob {
   status: BackupStatus
   controller: AbortController
@@ -34,10 +39,10 @@ export class MailHarborRuntime {
   private config: MailHarborConfig
   private configStamp = 0
   readonly credentials: CredentialManager
-  private readonly providers = new Map<string, ImapProvider>()
-  private readonly databases = new Map<string, MailDatabase>()
-  private readonly draftStores = new Map<string, DraftStore>()
-  private readonly readStores = new Map<string, ReadStateStore>()
+  private readonly providers = new Map<string, SignatureEntry<ImapProvider>>()
+  private readonly databases = new Map<string, SignatureEntry<MailDatabase>>()
+  private readonly draftStores = new Map<string, SignatureEntry<DraftStore>>()
+  private readonly readStores = new Map<string, SignatureEntry<ReadStateStore>>()
   private readonly backups = new Map<string, BackupJob>()
   private disposed = false
 
@@ -72,13 +77,13 @@ export class MailHarborRuntime {
     const live = new Set(this.config.accounts.map((account) => account.id))
     for (const id of [...this.providers.keys()]) {
       if (!live.has(id)) {
-        void this.providers.get(id)?.dispose()
+        void this.providers.get(id)?.value.dispose()
         this.providers.delete(id)
       }
     }
     for (const id of [...this.databases.keys()]) {
       if (!live.has(id)) {
-        this.databases.get(id)?.close()
+        this.databases.get(id)?.value.close()
         this.databases.delete(id)
       }
     }
@@ -88,9 +93,9 @@ export class MailHarborRuntime {
 
   /** Drop cached connections and stores for one account after a settings change. */
   invalidate(accountId: string): void {
-    void this.providers.get(accountId)?.dispose()
+    void this.providers.get(accountId)?.value.dispose()
     this.providers.delete(accountId)
-    this.databases.get(accountId)?.close()
+    this.databases.get(accountId)?.value.close()
     this.databases.delete(accountId)
     this.draftStores.delete(accountId)
     this.readStores.delete(accountId)
@@ -128,42 +133,48 @@ export class MailHarborRuntime {
   }
 
   provider(account: Account): ImapProvider {
+    const signature = `${account.imap.host}:${String(account.imap.port)}:${String(account.imap.secure)}:${account.username}:${account.auth.type}`
     const existing = this.providers.get(account.id)
-    if (existing !== undefined) return existing
+    if (existing !== undefined && existing.signature === signature) return existing.value
+    if (existing !== undefined) void existing.value.dispose()
     const created = new ImapProvider(account.imap, this.credentialsFor(account), {
       onReconnect: () => {
         // Connection drops are expected on long-lived accounts; the next
         // operation reconnects transparently.
       },
     })
-    this.providers.set(account.id, created)
+    this.providers.set(account.id, { signature, value: created })
     return created
   }
 
   database(account: Account): MailDatabase {
+    const root = this.paths(account)
     const existing = this.databases.get(account.id)
-    if (existing !== undefined) return existing
-    const created = new MailDatabase(this.paths(account).mailDb, {
+    if (existing !== undefined && existing.signature === root.mailDb) return existing.value
+    if (existing !== undefined) existing.value.close()
+    const created = new MailDatabase(root.mailDb, {
       maxBodyChars: 400_000,
-      attachmentsRoot: this.paths(account).attachments,
+      attachmentsRoot: root.attachments,
     })
-    this.databases.set(account.id, created)
+    this.databases.set(account.id, { signature: root.mailDb, value: created })
     return created
   }
 
   drafts(account: Account): DraftStore {
+    const file = draftPath(this.paths(account).root)
     const existing = this.draftStores.get(account.id)
-    if (existing !== undefined) return existing
-    const created = new DraftStore(draftPath(this.paths(account).root), account.id)
-    this.draftStores.set(account.id, created)
+    if (existing !== undefined && existing.signature === file) return existing.value
+    const created = new DraftStore(file, account.id)
+    this.draftStores.set(account.id, { signature: file, value: created })
     return created
   }
 
   readState(account: Account): ReadStateStore {
+    const file = join(this.paths(account).root, 'read-state.json')
     const existing = this.readStores.get(account.id)
-    if (existing !== undefined) return existing
-    const created = new ReadStateStore(join(this.paths(account).root, 'read-state.json'))
-    this.readStores.set(account.id, created)
+    if (existing !== undefined && existing.signature === file) return existing.value
+    const created = new ReadStateStore(file)
+    this.readStores.set(account.id, { signature: file, value: created })
     return created
   }
 
@@ -223,7 +234,7 @@ export class MailHarborRuntime {
         status.running = false
         status.finishedAt = new Date().toISOString()
         if (status.exitCode === 0) status.lastSuccessAt = status.finishedAt
-        this.databases.get(account.id)?.close()
+        this.databases.get(account.id)?.value.close()
         this.databases.delete(account.id)
       }
     })()
@@ -241,9 +252,9 @@ export class MailHarborRuntime {
   async dispose(): Promise<void> {
     this.disposed = true
     for (const job of this.backups.values()) job.controller.abort()
-    for (const provider of this.providers.values()) await provider.dispose()
+    for (const provider of this.providers.values()) await provider.value.dispose()
     this.providers.clear()
-    for (const db of this.databases.values()) db.close()
+    for (const db of this.databases.values()) db.value.close()
     this.databases.clear()
   }
 }

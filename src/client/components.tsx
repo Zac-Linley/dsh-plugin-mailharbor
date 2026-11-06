@@ -59,6 +59,17 @@ export function Toggle({
   )
 }
 
+/** Portal root that keeps the shell's theme variables in scope. */
+function portalRoot(): HTMLElement {
+  const existing = document.getElementById('mailharbor-portal')
+  if (existing !== null) return existing
+  const element = document.createElement('div')
+  element.id = 'mailharbor-portal'
+  element.className = 'mailharbor mailharbor-portal'
+  document.body.append(element)
+  return element
+}
+
 export function Modal({
   title,
   children,
@@ -110,7 +121,7 @@ export function Modal({
         footer === undefined ? null : h('footer', null, footer),
       ),
     ),
-    document.body,
+    portalRoot(),
   )
 }
 

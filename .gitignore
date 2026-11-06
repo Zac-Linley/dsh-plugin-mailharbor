@@ -27,5 +27,6 @@ test/.tmp/
 data/
 
 # logs
+.shots/
 .gh-cache/
 *.log
