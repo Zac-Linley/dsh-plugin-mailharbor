@@ -1,7 +1,14 @@
 import { createElement as h, useEffect, useState, type ReactNode } from 'react'
 import { api } from './api.js'
 
-/** Sidebar entry: an envelope with an unread badge, polled at a low rate. */
+/**
+ * Sidebar entry: an envelope plus an unread count.
+ *
+ * The shell renders this inside an 18×18 glyph slot and hides it from
+ * assistive tech, so the badge must stay compact and must not add layout.
+ * It uses the accent blue rather than `--dsw-alias-brand-primary`, which is
+ * near-white in the dark theme and would render as an empty white blob.
+ */
 export function MailIcon(): ReactNode {
   const [unread, setUnread] = useState(0)
 
@@ -33,16 +40,24 @@ export function MailIcon(): ReactNode {
   return h(
     'span',
     {
-      style: { position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
+      style: {
+        position: 'relative',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '18px',
+        height: '18px',
+        boxSizing: 'border-box',
+      },
     },
     h(
       'svg',
-      { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true' },
-      h('rect', { x: 2.5, y: 5, width: 19, height: 14, rx: 2.5, stroke: 'currentColor', strokeWidth: 1.6 }),
+      { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true' },
+      h('rect', { x: 2.5, y: 5, width: 19, height: 14, rx: 2.5, stroke: 'currentColor', strokeWidth: 1.7 }),
       h('path', {
         d: 'M3.5 7l7.6 5.4a1.6 1.6 0 0 0 1.8 0L20.5 7',
         stroke: 'currentColor',
-        strokeWidth: 1.6,
+        strokeWidth: 1.7,
         strokeLinecap: 'round',
       }),
     ),
@@ -52,18 +67,26 @@ export function MailIcon(): ReactNode {
           {
             style: {
               position: 'absolute',
-              top: '-4px',
-              right: '-6px',
-              minWidth: '14px',
-              height: '14px',
+              right: '-5px',
+              bottom: '-3px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxSizing: 'border-box',
+              minWidth: '13px',
+              height: '13px',
               padding: '0 3px',
               borderRadius: '999px',
-              background: 'var(--dsw-alias-brand-primary, #4d6bfe)',
+              background: '#5686fe',
               color: '#fff',
               fontSize: '9px',
-              lineHeight: '14px',
-              textAlign: 'center',
               fontWeight: 600,
+              lineHeight: '13px',
+              zIndex: 1,
+              letterSpacing: '-0.01em',
+              fontVariantNumeric: 'tabular-nums',
+              boxShadow: '0 0 0 2px var(--dsw-alias-bg-base, #151517)',
+              pointerEvents: 'none',
             },
           },
           unread > 99 ? '99+' : String(unread),
