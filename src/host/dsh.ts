@@ -44,7 +44,7 @@ export interface DshTools {
 
 export interface DshContext {
   webServer: DshWebServer
-  tools?: DshTools
+  tools: DshTools
   effect?: (effect: () => (() => void) | void, label?: string) => void
   logger?: (name: string) => {
     info(message: string): void

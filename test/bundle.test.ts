@@ -94,7 +94,7 @@ describe('built host bundle', () => {
       apply?: unknown
     }
     expect(module.name).toBe('mailharbor')
-    expect(module.inject).toEqual(['webServer'])
+    expect(module.inject).toEqual(['webServer', 'tools'])
     expect(typeof module.apply).toBe('function')
   })
 

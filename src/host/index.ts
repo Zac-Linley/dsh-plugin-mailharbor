@@ -5,8 +5,8 @@ import { registerMailTools } from './tools.js'
 
 /** Loader row name shown by the DSH plugin manager. */
 export const name = 'mailharbor'
-/** The HTTP carrier is the only required Host service. */
-export const inject = ['webServer']
+/** Host services this plugin needs: the HTTP carrier and the tool registry. */
+export const inject = ['webServer', 'tools']
 /** Keep in sync with package.json (`npm run version` does this). */
 export const VERSION = '0.1.0'
 
@@ -23,9 +23,8 @@ export function apply(ctx: DshContext): void {
 
   const start = (): void => {
     disposers.push(ctx.webServer.register({ kind: 'prefix', path: ROUTE, handler }))
-    if (ctx.tools !== undefined) {
-      disposers.push(...registerMailTools(ctx.tools, runtime))
-    }
+    // `tools` is declared in `inject`; Cordis guarantees it is present here.
+    if (ctx.tools !== undefined) disposers.push(...registerMailTools(ctx.tools, runtime))
   }
 
   const stop = (): void => {
