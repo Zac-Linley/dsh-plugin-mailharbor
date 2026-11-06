@@ -28,6 +28,7 @@ import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestC
 import type { MailHarborRuntime } from './runtime.js'
 import type { ImapProvider } from './imap.js'
 import { verifySmtp } from './smtp.js'
+import { escapeHtml, htmlToText } from './html.js'
 
 export const API_PREFIX = '/mail-plugin/api'
 
@@ -668,29 +669,6 @@ async function sendFromPayload(
   return { ok: true, result }
 }
 
-/** Small, dependency-free HTML → text conversion for the plain-text alternative. */
-export function htmlToText(html: string): string {
-  return html
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
-    .replace(/<li[^>]*>/gi, '• ')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
-
-function escapeHtml(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-}
-
 /** Kept for the tools layer and tests. */
 export { addressOf, parseAddressList, randomUUID, backups }
 
@@ -698,4 +676,4 @@ function backups(account: Account, runtime: MailHarborRuntime): BackupStatus {
   return runtime.backupStatus(account)
 }
 
-export { BackupEngine }
+export { htmlToText, escapeHtml, BackupEngine }

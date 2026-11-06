@@ -8,6 +8,14 @@ export interface SmtpCredentials {
   accessToken?: string
 }
 
+export interface SmtpSecurityOptions {
+  /**
+   * Accept a self-signed certificate. Deliberately not reachable from the HTTP
+   * API: production connections always verify the server certificate.
+   */
+  allowSelfSigned?: boolean
+}
+
 export interface OutgoingMail {
   from?: string
   to: string
@@ -21,7 +29,11 @@ export interface OutgoingMail {
   attachments?: { filename: string; contentType: string; content: Buffer }[]
 }
 
-function transportOptions(settings: SmtpSettings, credentials: SmtpCredentials) {
+function transportOptions(
+  settings: SmtpSettings,
+  credentials: SmtpCredentials,
+  security: SmtpSecurityOptions = {},
+) {
   const secure = settings.secure !== false
   return {
     host: settings.host,
@@ -33,7 +45,7 @@ function transportOptions(settings: SmtpSettings, credentials: SmtpCredentials) 
       credentials.accessToken !== undefined
         ? { type: 'OAuth2' as const, user: credentials.user, accessToken: credentials.accessToken }
         : { user: credentials.user, pass: credentials.pass ?? '' },
-    tls: { rejectUnauthorized: true, servername: settings.host },
+    tls: { rejectUnauthorized: security.allowSelfSigned !== true, servername: settings.host },
     connectionTimeout: 20_000,
     greetingTimeout: 20_000,
     socketTimeout: 120_000,
@@ -41,8 +53,12 @@ function transportOptions(settings: SmtpSettings, credentials: SmtpCredentials) 
   }
 }
 
-function createTransport(settings: SmtpSettings, credentials: SmtpCredentials) {
-  return nodemailer.createTransport(transportOptions(settings, credentials))
+function createTransport(
+  settings: SmtpSettings,
+  credentials: SmtpCredentials,
+  security: SmtpSecurityOptions = {},
+) {
+  return nodemailer.createTransport(transportOptions(settings, credentials, security))
 }
 
 /** Validate one recipient header into envelope addresses. */
@@ -57,8 +73,9 @@ export function recipientsOf(value: string): string[] {
 export async function verifySmtp(
   settings: SmtpSettings,
   credentials: SmtpCredentials,
+  security: SmtpSecurityOptions = {},
 ): Promise<{ ok: true; host: string; port: number }> {
-  const transport = createTransport(settings, credentials)
+  const transport = createTransport(settings, credentials, security)
   try {
     await transport.verify()
     return { ok: true, host: settings.host, port: Number(settings.port) }
@@ -77,6 +94,7 @@ export async function sendMail(
   credentials: SmtpCredentials,
   account: string,
   mail: OutgoingMail,
+  security: SmtpSecurityOptions = {},
 ): Promise<SendResult> {
   const from = addressOf(mail.from ?? account)
   if (!isEmail(from)) throw new Error('发件人地址无效')
@@ -84,7 +102,7 @@ export async function sendMail(
   const cc = recipientsOf(mail.cc ?? '')
   if (to.length === 0) throw new Error('收件人不能为空')
 
-  const transport = createTransport(settings, credentials)
+  const transport = createTransport(settings, credentials, security)
   try {
     const info = await transport.sendMail({
       from: settings.fromName === '' ? from : { name: settings.fromName, address: from },
