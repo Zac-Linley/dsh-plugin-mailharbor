@@ -66,10 +66,11 @@ function backupFile(file) {
 }
 
 function atomicWrite(file, data) {
+  if (dryRun) return
   mkdirSync(dirname(file), { recursive: true })
   const temp = `${file}.${String(process.pid)}.tmp`
   writeFileSync(temp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 })
-  if (!dryRun) renameSync(temp, file)
+  renameSync(temp, file)
 }
 
 function accountId(email, taken) {
