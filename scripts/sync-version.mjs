@@ -5,7 +5,7 @@ const root = resolve(import.meta.dirname, '..')
 const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
 
 const targets = ['src/host/index.ts', 'src/client/index.tsx']
-const version = JSON.stringify(pkg.version)
+const version = `'${pkg.version}'`
 
 for (const target of targets) {
   const file = resolve(root, target)

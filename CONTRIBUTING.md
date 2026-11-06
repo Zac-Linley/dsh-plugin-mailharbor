@@ -53,6 +53,21 @@ Never commit real mailbox data, passwords, `.env` files, or `~/.dsh/mailharbor`.
 4. Merging that PR runs `changeset version`, pushes the `vX.Y.Z` tag, and publishes to npm with
    provenance.
 
+### Publish credentials (one-time setup)
+
+The release workflow authenticates to npm with the `NPM_TOKEN` repository secret. Pick one:
+
+```bash
+# A) automation token from npmjs.com → Access Tokens → Generate New Token (Automation)
+gh secret set NPM_TOKEN --repo Zac-Linley/dsh-plugin-mailharbor
+```
+
+Or B) enable **Trusted Publishing** (no token): npmjs.com → the package → Settings →
+Trusted publishing → GitHub Actions, repository `Zac-Linley/dsh-plugin-mailharbor`,
+workflow `release.yml`. Then remove the `NODE_AUTH_TOKEN` line from the workflow.
+
+Until one is configured, a Version Packages PR can be created but merging it cannot publish.
+
 The repository needs an `NPM_TOKEN` secret with publish rights for `@zaclinley/*`.
 
 ## Design rules
