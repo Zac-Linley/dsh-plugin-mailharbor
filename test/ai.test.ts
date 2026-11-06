@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { AiService, summaryBlocks, textToHtml } from '../src/host/ai.js'
+import { AiService, normalizeTranslated, summaryBlocks, textToHtml } from '../src/host/ai.js'
 import type { MailHarborConfig } from '../src/host/config.js'
 import type { DshLlm, DshLlmChunk } from '../src/host/dsh.js'
 import type { Account, MessageDetail } from '../src/shared/types.js'
@@ -161,6 +161,16 @@ describe('AiService', () => {
 })
 
 describe('AI output helpers', () => {
+  it('normalizes a translated HTML document for display and insertion', () => {
+    const result = normalizeTranslated(
+      '<!doctype html><html><head><style>p{}</style></head><body><p>Hello <b>there</b></p></body></html>',
+    )
+    expect(result.text).toBe('Hello there')
+    expect(result.html).toBe('<p>Hello <b>there</b></p>')
+
+    expect(normalizeTranslated('Hola')).toEqual({ text: 'Hola', html: '<p>Hola</p>' })
+  })
+
   it('splits a summary into titled blocks', () => {
     const blocks = summaryBlocks('结论\n需要复核。\n\n需要你做什么\n- 周五前确认')
     expect(blocks).toEqual([

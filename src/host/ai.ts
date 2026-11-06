@@ -372,6 +372,29 @@ export class AiService {
   }
 }
 
+/**
+ * The model may answer a translation with a complete HTML document. Keep the
+ * body for insertion, and derive plain text for display so the panel never
+ * shows raw tags.
+ */
+export function normalizeTranslated(value: string): { text: string; html: string } {
+  const raw = value.trim()
+  if (raw === '') return { text: '', html: '' }
+  if (!/<[a-z][\s\S]*>/i.test(raw)) return { text: raw, html: textToHtml(raw) }
+  let body = raw
+  const match = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(raw)
+  if (match !== null) body = match[1] ?? ''
+  body = body
+    .replace(/<!doctype[^>]*>/gi, '')
+    .replace(/<head[\s\S]*?<\/head>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .trim()
+  const text = htmlToPlain(body)
+  if (body === '' || text === '') return { text: raw, html: textToHtml(raw) }
+  return { text, html: body }
+}
+
 /** Strip HTML tags for prompts that must receive plain text. */
 export function htmlToPlain(html: string): string {
   return html

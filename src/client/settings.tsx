@@ -26,7 +26,7 @@ export function MailSettings(): ReactNode {
   const [styleMeta, setStyleMeta] = useState({ updatedAt: '', sampleCount: 0 })
   const [styleBusy, setStyleBusy] = useState<'save' | 'learn' | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
-  const [checkResult, setCheckResult] = useState<string>('')
+  const [checkResults, setCheckResults] = useState<Record<string, string>>({})
   const [adding, setAdding] = useState(false)
   const [tick, setTick] = useState(0)
 
@@ -133,10 +133,10 @@ export function MailSettings(): ReactNode {
                 active: item.id === settings.activeAccountId,
                 loggedIn: item.id === settings.activeAccountId ? state.loggedIn : undefined,
                 editing: editing === item.id,
-                checkResult: editing === item.id ? checkResult : '',
+                checkResult: checkResults[item.id] ?? '',
                 onToggleEdit: () => {
                   setEditing(editing === item.id ? null : item.id)
-                  setCheckResult('')
+                  setCheckResults((prev) => ({ ...prev, [item.id]: '' }))
                 },
                 onActivate: async () => {
                   await api.activateAccount(item.id)
@@ -153,11 +153,12 @@ export function MailSettings(): ReactNode {
                 onCheck: async () => {
                   try {
                     const result = await api.check(item.id)
-                    setCheckResult(
-                      `IMAP 正常（${String(result.imap.mailboxes.length)} 个文件夹）· SMTP ${result.smtp.ok ? '正常' : `失败: ${result.smtp.error ?? ''}`}`,
-                    )
+                    setCheckResults((prev) => ({
+                      ...prev,
+                      [item.id]: `IMAP 正常（${String(result.imap.mailboxes.length)} 个文件夹）· SMTP ${result.smtp.ok ? '正常' : `失败: ${result.smtp.error ?? ''}`}`,
+                    }))
                   } catch (caught) {
-                    setCheckResult(`失败: ${errorText(caught)}`)
+                    setCheckResults((prev) => ({ ...prev, [item.id]: `失败: ${errorText(caught)}` }))
                   }
                 },
                 onSave: async (patch) => {
@@ -486,6 +487,7 @@ function AccountRow({
   const [smtpSecure, setSmtpSecure] = useState(account.smtp.secure)
   const [fromName, setFromName] = useState(account.smtp.fromName)
   const [busy, setBusy] = useState(false)
+  const [checking, setChecking] = useState(false)
 
   useEffect(() => {
     setLabel(account.label)
@@ -527,9 +529,30 @@ function AccountRow({
       active
         ? null
         : h('button', { className: 'ghost small', onClick: () => void wrap(onActivate) }, '设为当前'),
-      h('button', { className: 'ghost small', onClick: () => void wrap(onCheck) }, '检查连接'),
+      h(
+        'button',
+        {
+          className: 'ghost small',
+          disabled: checking,
+          onClick: () => {
+            setChecking(true)
+            void wrap(onCheck).finally(() => setChecking(false))
+          },
+        },
+        checking ? '检查中…' : '检查连接',
+      ),
       h('button', { className: 'ghost small', onClick: onToggleEdit }, editing ? '收起' : '编辑'),
     ),
+    checkResult === ''
+      ? null
+      : h(
+          'div',
+          {
+            className: 'mailharbor-check',
+            style: { color: checkResult.startsWith('失败') ? 'var(--m-danger)' : 'var(--m-ok)' },
+          },
+          checkResult,
+        ),
     editing
       ? h(
           'div',
@@ -662,7 +685,6 @@ function AccountRow({
             ),
             h('button', { className: 'ghost small', onClick: () => void wrap(onLogout) }, '退出登录'),
           ),
-          checkResult === '' ? null : h('div', { className: 'small muted' }, checkResult),
         )
       : null,
   )

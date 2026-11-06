@@ -25,7 +25,7 @@ import {
 } from './config.js'
 import { BackupEngine } from './backup.js'
 import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestContext } from './http.js'
-import { summaryBlocks, textToHtml } from './ai.js'
+import { normalizeTranslated, summaryBlocks, textToHtml } from './ai.js'
 import { VERSION } from './version.js'
 import type { MailHarborRuntime } from './runtime.js'
 import type { ImapProvider } from './imap.js'
@@ -425,8 +425,9 @@ function buildRouter(runtime: MailHarborRuntime): Router {
         }
       } else if (kind === 'translate') {
         const source = detail.html !== null && detail.html !== '' ? detail.html : detail.text
-        output = await ai.translate(source, target)
-        html = /<[a-z][\s\S]*>/i.test(output) ? output : textToHtml(output)
+        const translated = normalizeTranslated(await ai.translate(source, target))
+        output = translated.text
+        html = translated.html
         meta = { target }
       } else {
         const earlier =
@@ -530,8 +531,8 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     const html = typeof payload.html === 'string' ? payload.html : ''
     const target = payload.target === 'en' ? 'en' : 'zh'
     try {
-      const text = await runtime.ai().translate(html, target)
-      return { text, html: /<[a-z][\s\S]*>/i.test(text) ? text : textToHtml(text) }
+      const translated = normalizeTranslated(await runtime.ai().translate(html, target))
+      return { text: translated.text, html: translated.html }
     } catch (error) {
       throw aiHttpError(error)
     }
