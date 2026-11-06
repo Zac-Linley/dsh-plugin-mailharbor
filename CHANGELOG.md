@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+### Patch Changes
+
+- 7f5a956: Adapt the sidebar unread badge to the shell: a compact accent pill at the icon
+  corner instead of a white blob that covered the envelope (the old badge used
+  `--dsw-alias-brand-primary`, which is near-white in the dark theme).
+
 ## 0.2.0
 
 ### Minor Changes
