@@ -1,0 +1,113 @@
+{
+  "name": "@zaclinley/dsh-mailharbor",
+  "version": "0.1.0",
+  "description": "MailHarbor: a multi-account IMAP/SMTP mail workspace for DeepSeek Harness with local backup, AI search and compose, CalDAV tasks and reports.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis-plugin",
+    "email",
+    "imap",
+    "smtp",
+    "mail",
+    "backup",
+    "caldav"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Zac Linley",
+    "url": "https://github.com/Zac-Linley"
+  },
+  "homepage": "https://github.com/Zac-Linley/dsh-plugin-mailharbor#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zac-Linley/dsh-plugin-mailharbor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Zac-Linley/dsh-plugin-mailharbor/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=24.9.0",
+    "dsh": ">=0.2.2-0 <0.3.0"
+  },
+  "packageManager": "npm@10.9.9",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "pack:check": "npm pack --dry-run",
+    "check": "npm run format:check && npm run typecheck && npm run lint && npm run build && npm run test && npm run pack:check",
+    "changeset": "changeset",
+    "version": "changeset version && node scripts/sync-version.mjs",
+    "release": "npm run check && npm publish",
+    "release:ci": "npm publish --provenance --access public"
+  },
+  "dependencies": {
+    "imapflow": "^2.11.0",
+    "mailparser": "^3.14.2",
+    "nodemailer": "^10.3.1"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.3",
+    "@eslint/js": "^9.39.5",
+    "@types/mailparser": "^3.9.0",
+    "@types/node": "^24.10.1",
+    "@types/nodemailer": "^8.0.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitest/coverage-v8": "^5.1.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "jsdom": "^31.0.0",
+    "prettier": "^3.9.10",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0"
+  }
+}

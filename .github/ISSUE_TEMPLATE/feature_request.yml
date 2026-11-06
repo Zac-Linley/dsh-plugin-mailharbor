@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a capability for MailHarbor
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the workflow that is currently awkward or missing.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should the plugin do? Screenshots or sketches are welcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Accounts and credentials
+        - Reading and search
+        - Composing and sending
+        - Local backup
+        - Agent tools
+        - Settings
+        - Other
+    validations:
+      required: true

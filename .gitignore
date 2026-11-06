@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+
+# build output (produced by `npm run build`, published to npm)
+lib/
+*.tsbuildinfo
+
+# test output
+coverage/
+test/.tmp/
+
+# local npm cache used in sandboxed/dev environments
+.npm-cache/
+
+# packed tarballs
+*.tgz
+
+# local machine / secrets / data
+.DS_Store
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+
+# logs
+*.log

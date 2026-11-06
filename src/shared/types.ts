@@ -1,0 +1,235 @@
+/**
+ * Wire types shared by the Host half and the browser half.
+ *
+ * The HTTP API under `/mail-plugin/api` and the `mail_*` agent tools both speak
+ * these shapes. Keep them JSON-serializable: no Date objects, no Buffers.
+ */
+
+export const VERSION = '0.1.0'
+
+/**
+ * Mailbox buckets the UI can browse: an IMAP path as stored by the backup
+ * engine, or `all` for the unified list.
+ */
+export type Mailbox = string
+
+export const MAILBOX_ALL = 'all'
+
+/** Where a list or a message comes from. */
+export type Source = 'local' | 'server'
+
+/** Sort order accepted by message lists. */
+export type SortOrder = 'newest' | 'oldest'
+
+export interface ImapSettings {
+  host: string
+  port: number
+  secure: boolean
+}
+
+export interface SmtpSettings extends ImapSettings {
+  fromName: string
+}
+
+export interface Address {
+  name: string
+  address: string
+}
+
+export type OAuthProvider = 'google' | 'microsoft'
+
+export interface OAuthAccountAuth {
+  type: 'oauth2'
+  provider: OAuthProvider
+}
+
+export interface PasswordAccountAuth {
+  type: 'password'
+}
+
+export interface CalDavSettings {
+  url: string
+  username: string
+  /** Calendar collection href discovered from the principal, when known. */
+  calendarHref?: string
+}
+
+export interface Account {
+  id: string
+  label: string
+  email: string
+  username: string
+  imap: ImapSettings
+  smtp: SmtpSettings
+  /** Keychain service that stores this account's password. */
+  keychainService: string
+  /** Path relative to the data root, e.g. `accounts/acc_ab12`. */
+  dataDir: string
+  auth: PasswordAccountAuth | OAuthAccountAuth
+  caldav: CalDavSettings | null
+  enabled: boolean
+  createdAt: string
+}
+
+/**
+ * Account fields a client may submit when adding an account. Secrets are never
+ * part of the account record; they are passed separately and stored by the
+ * credential backend.
+ */
+export interface NewAccountInput {
+  email: string
+  label?: string
+  username?: string
+  password?: string
+  imap?: Partial<ImapSettings>
+  smtp?: Partial<SmtpSettings>
+  /** Keep the password in the OS credential store instead of this session only. */
+  remember?: boolean
+}
+
+export interface AttachmentMeta {
+  /** Stable local identifier (content hash) or IMAP part id. */
+  id: string
+  filename: string
+  contentType: string
+  size: number
+}
+
+export interface MessageSummary {
+  /** Local rowid (local source) or IMAP uid (server source), as a string. */
+  id: string
+  accountId: string
+  /** Server UID when known; enables marking read and fetching attachments. */
+  uid?: number
+  messageId?: string
+  subject: string
+  from: Address
+  to: Address[]
+  date: string
+  unread: boolean
+  flagged: boolean
+  hasAttachments: boolean
+  snippet: string
+  size?: number
+  mailbox: Mailbox
+  /** Server rows only: whether the local backup already holds this message. */
+  backedUp?: boolean
+}
+
+export interface MessageDetail extends MessageSummary {
+  cc: Address[]
+  replyTo: Address[]
+  text: string
+  /** Raw HTML body as stored; the client sanitizes and sandboxes it. */
+  html: string | null
+  attachments: AttachmentMeta[]
+  inReplyTo?: string
+  references: string[]
+}
+
+export interface DraftInput {
+  to: string
+  cc: string
+  bcc: string
+  subject: string
+  /** Sanitized HTML body. */
+  html: string
+  attachments: DraftAttachment[]
+  inReplyTo?: string
+  references?: string
+}
+
+export interface DraftAttachment {
+  filename: string
+  contentType: string
+  /** Base64 payload for client-supplied drafts. */
+  data: string
+}
+
+export interface Draft extends DraftInput {
+  id: string
+  accountId: string
+  updatedAt: string
+}
+
+export interface OutgoingAttachment {
+  filename: string
+  contentType: string
+  content: Buffer | string
+}
+
+export interface SendResult {
+  messageId: string
+  accepted: string[]
+  rejected: string[]
+}
+
+export interface Task {
+  id: string
+  accountId: string
+  uid: string
+  summary: string
+  notes: string
+  due: string | null
+  status: 'needs-action' | 'in-process' | 'completed' | 'cancelled'
+  priority: number
+  /** Local edits not yet pushed to CalDAV. */
+  dirty: boolean
+  updatedAt: string
+}
+
+export interface BackupStatus {
+  running: boolean
+  accountId: string | null
+  startedAt: string | null
+  finishedAt: string | null
+  lastSuccessAt: string | null
+  total: number
+  added: number
+  message: string
+  output: string[]
+  exitCode: number | null
+}
+
+export interface SettingsView {
+  dataDir: string
+  configFile: string
+  signature: string
+  accounts: Account[]
+  activeAccountId: string | null
+  ai: {
+    enabled: boolean
+    provider: string
+    model: string
+    styleSampleCount: number
+  }
+  read: {
+    markOnOpen: boolean
+    pollSeconds: number
+  }
+  render: {
+    listLimit: number
+  }
+}
+
+export interface AppState {
+  version: string
+  settings: SettingsView
+  accounts: Account[]
+  activeAccountId: string | null
+  backup: BackupStatus
+  unread: number
+  loggedIn: boolean
+}
+
+export interface Page<T> {
+  items: T[]
+  total: number
+  offset: number
+  limit: number
+}
+
+export interface ApiError {
+  error: string
+  code?: string
+}

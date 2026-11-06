@@ -1,0 +1,7 @@
+lib/
+coverage/
+node_modules/
+.npm-cache/
+*.tgz
+package-lock.json
+test/.tmp/

@@ -1,0 +1,594 @@
+/* MailHarbor panel + settings. Colors come from the DSH shell tokens with
+   light-mode fallbacks so the plugin also renders in a bare host page. */
+
+.mailharbor {
+  --m-bg: var(--dsw-alias-bg-base, #ffffff);
+  --m-bg-1: var(--dsw-alias-bg-layer-1, #f6f7f9);
+  --m-bg-2: var(--dsw-alias-bg-layer-2, #eceef2);
+  --m-bg-3: var(--dsw-alias-bg-layer-3, #e4e7ec);
+  --m-line: var(--dsw-alias-border-l2, rgba(15, 23, 42, 0.1));
+  --m-line-soft: var(--dsw-alias-border-l1, rgba(15, 23, 42, 0.06));
+  --m-text: var(--dsw-alias-label-primary, #171a21);
+  --m-text-2: var(--dsw-alias-label-secondary, #565c67);
+  --m-text-3: var(--dsw-alias-label-tertiary, #8a909c);
+  --m-brand: var(--dsw-alias-brand-primary, #4d6bfe);
+  --m-brand-soft: color-mix(in srgb, var(--m-brand) 12%, transparent);
+  --m-hover: var(--dsw-alias-interactive-bg-hover, rgba(15, 23, 42, 0.05));
+  --m-danger: var(--dsw-alias-label-error, #d93025);
+  --m-ok: var(--dsw-alias-state-success-primary, #1a9e5c);
+  --m-warn: var(--dsw-alias-state-warn-primary, #d88a2a);
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--m-bg);
+  color: var(--m-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.mailharbor *,
+.mailharbor *::before,
+.mailharbor *::after {
+  box-sizing: border-box;
+}
+
+/* ---------- shell ---------- */
+
+.mailharbor-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--m-line-soft);
+  flex: none;
+}
+
+.mailharbor-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.mailharbor-list {
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  flex: none;
+  border-right: 1px solid var(--m-line-soft);
+  min-height: 0;
+}
+
+.mailharbor-reader {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .mailharbor-list {
+    width: 280px;
+  }
+}
+
+.mailharbor-narrow .mailharbor-body[data-mode='reader'] .mailharbor-list {
+  display: none;
+}
+
+.mailharbor-narrow .mailharbor-body[data-mode='list'] .mailharbor-reader {
+  display: none;
+}
+
+/* ---------- controls ---------- */
+
+.mailharbor button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 5px 9px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.mailharbor button:hover:not(:disabled) {
+  background: var(--m-hover);
+}
+
+.mailharbor button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.mailharbor button.primary {
+  background: var(--m-brand);
+  color: #fff;
+}
+
+.mailharbor button.primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+  background: var(--m-brand);
+}
+
+.mailharbor button.ghost {
+  border-color: var(--m-line);
+}
+
+.mailharbor button.subtle {
+  color: var(--m-text-2);
+}
+
+.mailharbor button.danger {
+  color: var(--m-danger);
+}
+
+.mailharbor input,
+.mailharbor select,
+.mailharbor textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--m-bg-1);
+  border: 1px solid var(--m-line);
+  border-radius: 7px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+
+.mailharbor input:focus,
+.mailharbor select:focus,
+.mailharbor textarea:focus,
+.mailharbor [contenteditable='true']:focus {
+  outline: 2px solid color-mix(in srgb, var(--m-brand) 45%, transparent);
+  outline-offset: -1px;
+}
+
+.mailharbor .spacer {
+  flex: 1;
+}
+
+.mailharbor .muted {
+  color: var(--m-text-3);
+}
+
+.mailharbor .small {
+  font-size: 12px;
+}
+
+.mailharbor .badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--m-bg-2);
+  color: var(--m-text-2);
+}
+
+.mailharbor .badge.ok {
+  background: color-mix(in srgb, var(--m-ok) 15%, transparent);
+  color: var(--m-ok);
+}
+
+.mailharbor .badge.warn {
+  background: color-mix(in srgb, var(--m-warn) 16%, transparent);
+  color: var(--m-warn);
+}
+
+.mailharbor .error {
+  color: var(--m-danger);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--m-line-soft);
+  background: color-mix(in srgb, var(--m-danger) 7%, transparent);
+}
+
+/* ---------- list ---------- */
+
+.mailharbor-filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--m-line-soft);
+  flex: none;
+}
+
+.mailharbor-filters input[type='search'] {
+  flex: 1;
+}
+
+.mailharbor-segment {
+  display: inline-flex;
+  background: var(--m-bg-2);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.mailharbor-segment button {
+  padding: 3px 10px;
+  border-radius: 6px;
+  color: var(--m-text-2);
+}
+
+.mailharbor-segment button.active {
+  background: var(--m-bg);
+  color: var(--m-text);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+
+.mailharbor-rows {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.mailharbor-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--m-line-soft);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  border-radius: 0;
+  border-left: 2px solid transparent;
+}
+
+.mailharbor-row:hover {
+  background: var(--m-hover);
+}
+
+.mailharbor-row.selected {
+  background: var(--m-brand-soft);
+  border-left-color: var(--m-brand);
+}
+
+.mailharbor-row .line-1,
+.mailharbor-row .line-2 {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.mailharbor-row .from {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailharbor-row .date {
+  margin-left: auto;
+  color: var(--m-text-3);
+  font-size: 11px;
+  flex: none;
+}
+
+.mailharbor-row .subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--m-text-2);
+}
+
+.mailharbor-row.unread .subject,
+.mailharbor-row.unread .from {
+  color: var(--m-text);
+}
+
+.mailharbor-row.unread .from::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--m-brand);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.mailharbor-row .snippet {
+  color: var(--m-text-3);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailharbor-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--m-text-3);
+}
+
+/* ---------- reader ---------- */
+
+.mailharbor-reader-head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--m-line-soft);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mailharbor-reader-head h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.mailharbor-reader-meta {
+  color: var(--m-text-2);
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.mailharbor-reader-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mailharbor-reader-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--m-bg-1);
+}
+
+.mailharbor-reader-body iframe {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.mailharbor-reader-body pre {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 16px 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.mailharbor-attachments {
+  padding: 8px 14px;
+  border-top: 1px solid var(--m-line-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: none;
+  background: var(--m-bg);
+}
+
+.mailharbor-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--m-line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  text-decoration: none;
+  color: var(--m-text);
+  max-width: 260px;
+}
+
+.mailharbor-attachment:hover {
+  background: var(--m-hover);
+}
+
+.mailharbor-attachment span.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- modal / form ---------- */
+
+.mailharbor-modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 24px;
+}
+
+.mailharbor-modal {
+  background: var(--m-bg);
+  color: var(--m-text);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.28);
+  width: min(760px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mailharbor-modal header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--m-line-soft);
+  font-weight: 600;
+}
+
+.mailharbor-modal .content {
+  padding: 16px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mailharbor-modal footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--m-line-soft);
+}
+
+.mailharbor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mailharbor-field > label {
+  font-size: 12px;
+  color: var(--m-text-2);
+}
+
+.mailharbor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.mailharbor-grid.three {
+  grid-template-columns: 2fr 1fr auto;
+}
+
+.mailharbor-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--m-text-2);
+  cursor: pointer;
+}
+
+/* ---------- composer ---------- */
+
+.mailharbor-editor {
+  min-height: 220px;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--m-line);
+  border-radius: 8px;
+  background: var(--m-bg);
+  outline: none;
+}
+
+.mailharbor-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--m-text-3);
+}
+
+.mailharbor-toolbar {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.mailharbor-toolbar button {
+  padding: 3px 8px;
+  font-size: 12px;
+  border: 1px solid transparent;
+}
+
+.mailharbor-toolbar button:hover {
+  border-color: var(--m-line);
+}
+
+/* ---------- settings ---------- */
+
+.mailharbor-settings {
+  padding: 16px 20px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 860px;
+}
+
+.mailharbor-settings h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.mailharbor-settings h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--m-text-2);
+  font-weight: 600;
+}
+
+.mailharbor-card {
+  border: 1px solid var(--m-line-soft);
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--m-bg);
+}
+
+.mailharbor-account-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mailharbor-account-row .avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--m-brand-soft);
+  color: var(--m-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  flex: none;
+}
+
+.mailharbor-log {
+  background: var(--m-bg-1);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.mailharbor-kv {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) 1fr;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+
+.mailharbor-kv dt {
+  color: var(--m-text-3);
+}
+
+.mailharbor-kv dd {
+  margin: 0;
+  word-break: break-all;
+}

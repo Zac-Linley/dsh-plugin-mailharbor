@@ -1,0 +1,249 @@
+import { statSync } from 'node:fs'
+import { join } from 'node:path'
+import type { Account, BackupStatus, ImapSettings } from '../shared/types.js'
+import { CredentialManager } from './accounts.js'
+import { BackupEngine } from './backup.js'
+import { DraftStore, draftPath } from './drafts.js'
+import {
+  type AccountRuntime,
+  type MailHarborConfig,
+  accountRuntime,
+  activeAccount as pickActive,
+  loadConfig,
+  requireAccount,
+} from './config.js'
+import { ImapProvider, type ImapCredentials } from './imap.js'
+import { MailDatabase } from './mail-db.js'
+import { ReadStateStore } from './read-state.js'
+
+export interface BackupJob {
+  status: BackupStatus
+  controller: AbortController
+  promise: Promise<void>
+}
+
+const MAX_OUTPUT_LINES = 200
+
+/**
+ * Process-wide state for the plugin: one config, one credential manager, and
+ * lazily created per-account providers and stores. Host code calls
+ * {@link refresh} at the start of every request so external config edits are
+ * picked up without a restart.
+ */
+export class MailHarborRuntime {
+  private config: MailHarborConfig
+  private configStamp = 0
+  readonly credentials: CredentialManager
+  private readonly providers = new Map<string, ImapProvider>()
+  private readonly databases = new Map<string, MailDatabase>()
+  private readonly draftStores = new Map<string, DraftStore>()
+  private readonly readStores = new Map<string, ReadStateStore>()
+  private readonly backups = new Map<string, BackupJob>()
+  private disposed = false
+
+  constructor(options: { credentials?: CredentialManager } = {}) {
+    this.config = loadConfig()
+    this.credentials = options.credentials ?? new CredentialManager()
+  }
+
+  get current(): MailHarborConfig {
+    return this.config
+  }
+
+  /** Re-read the config file when it changed on disk. */
+  refresh(): MailHarborConfig {
+    if (this.disposed) return this.config
+    let stamp = 0
+    try {
+      const stats = statSync(this.config.configFile)
+      stamp = stats.mtimeMs
+    } catch {
+      stamp = 0
+    }
+    if (stamp !== this.configStamp) {
+      this.configStamp = stamp
+      this.config = loadConfig()
+      this.prune()
+    }
+    return this.config
+  }
+
+  private prune(): void {
+    const live = new Set(this.config.accounts.map((account) => account.id))
+    for (const id of [...this.providers.keys()]) {
+      if (!live.has(id)) {
+        void this.providers.get(id)?.dispose()
+        this.providers.delete(id)
+      }
+    }
+    for (const id of [...this.databases.keys()]) {
+      if (!live.has(id)) {
+        this.databases.get(id)?.close()
+        this.databases.delete(id)
+      }
+    }
+    for (const id of [...this.draftStores.keys()]) if (!live.has(id)) this.draftStores.delete(id)
+    for (const id of [...this.readStores.keys()]) if (!live.has(id)) this.readStores.delete(id)
+  }
+
+  /** Drop cached connections and stores for one account after a settings change. */
+  invalidate(accountId: string): void {
+    void this.providers.get(accountId)?.dispose()
+    this.providers.delete(accountId)
+    this.databases.get(accountId)?.close()
+    this.databases.delete(accountId)
+    this.draftStores.delete(accountId)
+    this.readStores.delete(accountId)
+    this.refresh()
+  }
+
+  active(): Account | null {
+    return pickActive(this.config)
+  }
+
+  account(id?: string | null): Account {
+    return requireAccount(this.config, id)
+  }
+
+  paths(account: Account): AccountRuntime {
+    return accountRuntime(account)
+  }
+
+  /** Credentials for an account, with a clear message when the user must log in. */
+  credentialsFor(account: Account): ImapCredentials {
+    if (account.auth.type === 'oauth2') {
+      throw new Error('OAuth2 账号暂未在此版本启用，请使用应用专用密码登录')
+    }
+    const resolved = this.credentials.resolve(account)
+    if (resolved === undefined) throw new Error('请先登录邮箱账号')
+    return { user: account.username || account.email, pass: resolved.password }
+  }
+
+  hasCredentials(account: Account): boolean {
+    return this.credentials.resolve(account) !== undefined
+  }
+
+  imapSettings(account: Account): ImapSettings {
+    return account.imap
+  }
+
+  provider(account: Account): ImapProvider {
+    const existing = this.providers.get(account.id)
+    if (existing !== undefined) return existing
+    const created = new ImapProvider(account.imap, this.credentialsFor(account), {
+      onReconnect: () => {
+        // Connection drops are expected on long-lived accounts; the next
+        // operation reconnects transparently.
+      },
+    })
+    this.providers.set(account.id, created)
+    return created
+  }
+
+  database(account: Account): MailDatabase {
+    const existing = this.databases.get(account.id)
+    if (existing !== undefined) return existing
+    const created = new MailDatabase(this.paths(account).mailDb, {
+      maxBodyChars: 400_000,
+      attachmentsRoot: this.paths(account).attachments,
+    })
+    this.databases.set(account.id, created)
+    return created
+  }
+
+  drafts(account: Account): DraftStore {
+    const existing = this.draftStores.get(account.id)
+    if (existing !== undefined) return existing
+    const created = new DraftStore(draftPath(this.paths(account).root), account.id)
+    this.draftStores.set(account.id, created)
+    return created
+  }
+
+  readState(account: Account): ReadStateStore {
+    const existing = this.readStores.get(account.id)
+    if (existing !== undefined) return existing
+    const created = new ReadStateStore(join(this.paths(account).root, 'read-state.json'))
+    this.readStores.set(account.id, created)
+    return created
+  }
+
+  backupStatus(account: Account): BackupStatus {
+    const job = this.backups.get(account.id)
+    if (job !== undefined) return { ...job.status, output: [...job.status.output] }
+    const persisted = BackupEngine.status(this.paths(account).mailDb)
+    return { ...persisted, accountId: account.id }
+  }
+
+  /** Start an incremental backup; returns the job so the caller can stream output. */
+  startBackup(
+    account: Account,
+    onEvent?: (event: { message: string; mailbox?: string; added?: number }) => void,
+  ): BackupJob {
+    const running = this.backups.get(account.id)
+    if (running !== undefined && running.status.running) throw new Error('备份已在进行中')
+    const controller = new AbortController()
+    const status: BackupStatus = {
+      running: true,
+      accountId: account.id,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      lastSuccessAt: null,
+      total: 0,
+      added: 0,
+      message: '准备备份',
+      output: [],
+      exitCode: null,
+    }
+    const job: BackupJob = { status, controller, promise: Promise.resolve() }
+    const engine = new BackupEngine(accountRuntime(account), this.credentialsFor(account))
+    job.promise = (async () => {
+      try {
+        const result = await engine.run({
+          signal: controller.signal,
+          onEvent: (event) => {
+            status.message = event.message
+            if (event.mailbox !== undefined) status.message = event.message
+            if (event.added !== undefined) status.added = event.added
+            if (event.total !== undefined) status.total = event.total
+            status.output.push(event.message)
+            if (status.output.length > MAX_OUTPUT_LINES)
+              status.output.splice(0, status.output.length - MAX_OUTPUT_LINES)
+            onEvent?.(event)
+          },
+        })
+        status.total = result.total
+        status.added = result.newCount
+        status.exitCode = 0
+        status.message = `备份完成：新增 ${String(result.newCount)} 封，共 ${String(result.total)} 封`
+      } catch (error) {
+        status.exitCode = 1
+        status.message = error instanceof Error ? error.message : String(error)
+        status.output.push(status.message)
+      } finally {
+        status.running = false
+        status.finishedAt = new Date().toISOString()
+        if (status.exitCode === 0) status.lastSuccessAt = status.finishedAt
+        this.databases.get(account.id)?.close()
+        this.databases.delete(account.id)
+      }
+    })()
+    this.backups.set(account.id, job)
+    return job
+  }
+
+  stopBackup(account: Account): boolean {
+    const job = this.backups.get(account.id)
+    if (job === undefined || !job.status.running) return false
+    job.controller.abort()
+    return true
+  }
+
+  async dispose(): Promise<void> {
+    this.disposed = true
+    for (const job of this.backups.values()) job.controller.abort()
+    for (const provider of this.providers.values()) await provider.dispose()
+    this.providers.clear()
+    for (const db of this.databases.values()) db.close()
+    this.databases.clear()
+  }
+}

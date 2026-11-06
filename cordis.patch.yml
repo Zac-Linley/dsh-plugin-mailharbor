@@ -1,0 +1,5 @@
+# MailHarbor bundle layer: mount the mail workspace in a DSH profile.
+# `dsh plugin add @zaclinley/dsh-mailharbor` applies this layer automatically.
+- insert:
+    - id: mailharbor
+      name: '@zaclinley/dsh-mailharbor'
