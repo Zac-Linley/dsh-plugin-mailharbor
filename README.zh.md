@@ -1,5 +1,10 @@
 # MailHarbor（邮件港）
 
+[![CI](https://github.com/Zac-Linley/dsh-plugin-mailharbor/actions/workflows/ci.yml/badge.svg)](https://github.com/Zac-Linley/dsh-plugin-mailharbor/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@zaclinley/dsh-mailharbor.svg)](https://www.npmjs.com/package/@zaclinley/dsh-mailharbor)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![DSH](https://img.shields.io/badge/DSH-0.2.x-4B67B4)](https://github.com/Zac-Linley/dsh-plugin-mailharbor)
+
 **把多个 IMAP/SMTP 邮箱接进 [DeepSeek Harness](https://github.com/Zac-Linley/dsh-plugin-mailharbor) 的邮件工作区。**
 
 MailHarbor 在 DSH 左侧栏加一个「邮件」入口，主面板里是完整的收发邮件工作区：浏览本地备份或

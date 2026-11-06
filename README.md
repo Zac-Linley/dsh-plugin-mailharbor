@@ -1,5 +1,10 @@
 # MailHarbor
 
+[![CI](https://github.com/Zac-Linley/dsh-plugin-mailharbor/actions/workflows/ci.yml/badge.svg)](https://github.com/Zac-Linley/dsh-plugin-mailharbor/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@zaclinley/dsh-mailharbor.svg)](https://www.npmjs.com/package/@zaclinley/dsh-mailharbor)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![DSH](https://img.shields.io/badge/DSH-0.2.x-4B67B4)](https://github.com/Zac-Linley/dsh-plugin-mailharbor)
+
 **A multi-account IMAP/SMTP mail workspace for [DeepSeek Harness](https://github.com/Zac-Linley/dsh-plugin-mailharbor).**
 
 MailHarbor adds a **Mail** entry to the DSH sidebar and a full mail workspace to the main panel:
