@@ -14,7 +14,7 @@ MailHarbor 在 DSH 左侧栏加一个「邮件」入口，主面板里是完整�
 - 包名：`@zaclinley/dsh-mailharbor`
 - 要求：**DSH `>=0.2.2-0 <0.3.0`**，Node **>=24.9**（DSH 自带运行时即可）
 - 许可证：MIT
-- 状态：**v0.3.0 — 核心邮件工作区 + AI 辅助**（中文摘要、AI 回复、翻译、写作风格）。OAuth2 与 CalDAV 是下一步（见[路线图](#路线图)）。
+- 状态：**v0.4.0 — 核心邮件工作区 + 常驻 AI 工作台**（摘要、AI 回复、翻译、自由问答、写作风格、写信版本栈）。OAuth2 与 CalDAV 是下一步（见[路线图](#路线图)）。
 
 ## 功能
 
@@ -40,9 +40,11 @@ MailHarbor 在 DSH 左侧栏加一个「邮件」入口，主面板里是完整�
 | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | ![统一收件箱](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/panel.png) | ![阅读页](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/reader.png) |
 
-| AI 摘要（中文）                                                                                                     | 从已发送邮件学习的写作风格                                                                                           |
-| ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| ![AI 摘要](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/ai-summary.png) | ![AI 设置](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/settings-ai.png) |
+| AI 工作台（每封邮件独立、持久保存）                                                                                     | 写信页 AI 与版本栈                                                                                                  |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| ![AI 工作台](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/ai-workspace.png) | ![写信 AI](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/ai-compose.png) |
+
+![从已发送邮件学习的写作风格](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/settings-ai.png)
 
 > 截图使用 `node scripts/seed-demo.mjs` 生成的虚构演示数据，不含真实邮件。
 
@@ -114,6 +116,7 @@ node node_modules/@zaclinley/dsh-mailharbor/scripts/migrate-legacy.mjs --copy
 - HTTP 接口只监听 DSH 自己的回环端口，跨站写请求返回 `403`。
 - `mail_*` 工具不能发信：没有 `mail_send`，发送必须由用户在面板里确认。
 - AI 通过 DSH 自己的 `ctx.llm` 调用，关闭后不会发送任何内容；写作风格只保存提炼后的档案，不保存邮件原文。
+- AI 卡片按账号保存在 `ai-threads.json`（最多 50 个线程、每线程 50 张卡片，可一键清除）。
 
 ## Agent 工具
 

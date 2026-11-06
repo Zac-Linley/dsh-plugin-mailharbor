@@ -1,5 +1,7 @@
 import type {
   Account,
+  AiCard,
+  AiThread,
   AppState,
   AttachmentMeta,
   BackupStatus,
@@ -188,6 +190,47 @@ export const api = {
     request<AiStatus>(`ai/status${query({ accountId: accountId ?? null })}`),
 
   aiModels: () => request<AiModels>('ai/models'),
+
+  aiThread: (accountId: string | null, key: string) =>
+    request<{ thread: AiThread | null }>(`ai/thread${query({ accountId: accountId ?? null, key })}`),
+
+  aiAddCard: (payload: {
+    accountId?: string | null
+    key: string
+    kind: 'summary' | 'reply' | 'translate' | 'answer'
+    instruction?: string
+    language?: 'zh' | 'en'
+    target?: 'zh' | 'en'
+    source: 'local' | 'server'
+    id: string
+    mailbox: string
+  }) =>
+    request<{ card: AiCard; thread: AiThread }>('ai/cards', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  aiDeleteCard: (accountId: string | null, key: string, cardId: string) =>
+    request<{ thread: AiThread | null }>(`ai/cards${query({ accountId: accountId ?? null, key, cardId })}`, {
+      method: 'DELETE',
+    }),
+
+  aiClearThread: (accountId: string | null, key: string) =>
+    request<{ ok: boolean }>(`ai/thread${query({ accountId: accountId ?? null, key })}`, {
+      method: 'DELETE',
+    }),
+
+  aiCompose: (payload: {
+    accountId?: string | null
+    mode: 'draft' | 'polish' | 'shorten'
+    instruction?: string
+    html: string
+    language?: 'zh' | 'en'
+  }) =>
+    request<{ text: string; html: string }>('ai/compose', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   aiSummary: (payload: {
     accountId?: string | null

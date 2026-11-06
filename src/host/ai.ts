@@ -69,6 +69,25 @@ const TRANSLATE_SYSTEM = (
 - 如果正文是 HTML，保留原有标签、链接和图片，只翻译可见文字
 - 专有名词、邮箱地址、链接、单号保持不变`
 
+const ASK_SYSTEM = `你是邮件助手。基于用户提供的邮件和已有的 AI 记录回答问题。
+
+要求：
+- 用简体中文回答，简洁直接
+- 只依据邮件内容和已有记录，不确定就说明「邮件里没有提到」
+- 不要复述问题，不要输出思考过程`
+
+const COMPOSE_SYSTEM = (mode: 'draft' | 'polish' | 'shorten', language: string, style: string): string => {
+  const shared = `- 语言：${language === 'en' ? '英文' : '简体中文'}\n- 不要写主题行，不要输出 Markdown 标记，不要解释你在做什么\n- 只输出正文本身`
+  const styleLine = style === '' ? '' : `\n写作风格（模仿但不生硬）：\n${style}`
+  if (mode === 'polish') {
+    return `你是邮件写作助理。润色用户给出的邮件正文，保持原意和事实，让表达更清晰自然。\n\n要求：\n${shared}${styleLine}`
+  }
+  if (mode === 'shorten') {
+    return `你是邮件写作助理。把用户给出的邮件正文缩短到约一半，保留关键信息和事实。\n\n要求：\n${shared}${styleLine}`
+  }
+  return `你是邮件写作助理。根据用户给出的要点写一封邮件正文。\n\n要求：\n${shared}${styleLine}`
+}
+
 const STYLE_SYSTEM = `你是写作风格分析师。阅读用户最近发出的邮件，用简体中文写一段 150-300 字的写作风格档案，覆盖：
 常用称呼、开头方式、结尾与署名、语气（正式/亲切/直接）、句子长短、常用表达或口头禅。
 只输出档案正文，不要输出标题、列表符号或分析过程。`
@@ -266,6 +285,52 @@ export class AiService {
     return this.complete(TRANSLATE_SYSTEM(target), clip(text, 20_000), signal)
   }
 
+  /** Free-form question about a mail, with up to three earlier AI outputs as context. */
+  async ask(
+    message: MessageDetail,
+    question: string,
+    history: string[],
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const prompt = (question ?? '').trim()
+    if (prompt === '') throw new Error('问题不能为空')
+    const earlier = history
+      .filter((item) => item.trim() !== '')
+      .slice(-3)
+      .map((item, index) => `【已有记录 ${String(index + 1)}】\n${clip(item, 4000)}`)
+      .join('\n\n')
+    const user = [
+      '邮件：',
+      contextOf(message),
+      ...(earlier === '' ? [] : ['', '已有 AI 记录：', earlier]),
+      '',
+      `用户的问题：${prompt}`,
+    ].join('\n')
+    return this.complete(ASK_SYSTEM, user, signal)
+  }
+
+  /** Compose-body assistance: draft from points, polish, or shorten. */
+  async compose(
+    account: Account,
+    options: {
+      mode: 'draft' | 'polish' | 'shorten'
+      instruction?: string
+      html: string
+      language?: 'zh' | 'en'
+    },
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const style = this.style(account)?.profile ?? ''
+    const language = options.language ?? 'zh'
+    const body = options.html.trim()
+    if (options.mode !== 'draft' && body === '') throw new Error('正文为空')
+    const source =
+      options.mode === 'draft'
+        ? `用户要点：${(options.instruction ?? '').trim() === '' ? '写一封简短的邮件' : (options.instruction ?? '').trim()}`
+        : `需要处理的正文：\n${clip(htmlToPlain(body), 12000)}`
+    return this.complete(COMPOSE_SYSTEM(options.mode, language, style), source, signal)
+  }
+
   async learnStyle(
     account: Account,
     samples: { subject: string; text: string }[],
@@ -305,6 +370,22 @@ export class AiService {
     }
     return catalog
   }
+}
+
+/** Strip HTML tags for prompts that must receive plain text. */
+export function htmlToPlain(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 /** Markdown-ish summary → simple blocks for the panel. */

@@ -15,7 +15,7 @@ and read state.
 - Package: `@zaclinley/dsh-mailharbor`
 - Requirements: **DSH `>=0.2.2-0 <0.3.0`**, Node **>=24.9** (the runtime bundled with DSH is fine)
 - License: MIT
-- Status: **v0.3.0 — core mail workspace plus AI assistance** (Chinese summaries, AI replies, translate, writing style). OAuth2 and CalDAV are next (see [Roadmap](#roadmap)).
+- Status: **v0.4.0 — core mail workspace plus a persistent AI workspace** (summary, reply, translate, Q&A, writing style, composer version stack). OAuth2 and CalDAV are next (see [Roadmap](#roadmap)).
 
 ## Features
 
@@ -41,9 +41,11 @@ and read state.
 | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | ![Unified inbox](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/panel.png) | ![Reader](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/reader.png) |
 
-| AI summary (Chinese)                                                                                                   | Writing style learned from sent mail                                                                                     |
-| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| ![AI summary](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/ai-summary.png) | ![AI settings](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/settings-ai.png) |
+| AI workspace (per mail, persisted)                                                                                         | Composer AI with version stack                                                                                         |
+| -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| ![AI workspace](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/ai-workspace.png) | ![AI compose](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/ai-compose.png) |
+
+![Writing style learned from sent mail](https://raw.githubusercontent.com/Zac-Linley/dsh-plugin-mailharbor/main/docs/screenshots/settings-ai.png)
 
 > Screenshots use fabricated demo data (`node scripts/seed-demo.mjs`), not a real mailbox.
 
@@ -121,6 +123,7 @@ until OAuth support ships. Restart DSH afterwards so the Host reopens the databa
 - `mail_*` tools never send mail: there is no `mail_send` tool. Sending is a user action in the panel.
 - AI calls go through DSH's own `ctx.llm`; nothing is sent when AI is off. The writing style stores only the
   distilled profile, not the sent mail it was learned from.
+- AI cards are stored per account in `ai-threads.json` (50 threads / 50 cards each, capped, with a clear button).
 
 ## Agent tools
 

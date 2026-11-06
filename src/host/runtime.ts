@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { Account, BackupStatus, ImapSettings } from '../shared/types.js'
 import { CredentialManager } from './accounts.js'
 import { AiService } from './ai.js'
+import { AiThreadStore } from './ai-store.js'
 import type { DshLlm } from './dsh.js'
 import { BackupEngine } from './backup.js'
 import { DraftStore, draftPath } from './drafts.js'
@@ -46,6 +47,7 @@ export class MailHarborRuntime {
   private readonly databases = new Map<string, SignatureEntry<MailDatabase>>()
   private readonly draftStores = new Map<string, SignatureEntry<DraftStore>>()
   private readonly readStores = new Map<string, SignatureEntry<ReadStateStore>>()
+  private readonly aiStores = new Map<string, SignatureEntry<AiThreadStore>>()
   private readonly backups = new Map<string, BackupJob>()
   private readonly llmProvider: () => DshLlm | undefined
   private aiService: AiService | null = null
@@ -115,6 +117,7 @@ export class MailHarborRuntime {
     }
     for (const id of [...this.draftStores.keys()]) if (!live.has(id)) this.draftStores.delete(id)
     for (const id of [...this.readStores.keys()]) if (!live.has(id)) this.readStores.delete(id)
+    for (const id of [...this.aiStores.keys()]) if (!live.has(id)) this.aiStores.delete(id)
   }
 
   /** Drop cached connections and stores for one account after a settings change. */
@@ -125,6 +128,7 @@ export class MailHarborRuntime {
     this.databases.delete(accountId)
     this.draftStores.delete(accountId)
     this.readStores.delete(accountId)
+    this.aiStores.delete(accountId)
     this.refresh()
   }
 
@@ -192,6 +196,15 @@ export class MailHarborRuntime {
     if (existing !== undefined && existing.signature === file) return existing.value
     const created = new DraftStore(file, account.id)
     this.draftStores.set(account.id, { signature: file, value: created })
+    return created
+  }
+
+  aiThreads(account: Account): AiThreadStore {
+    const file = join(this.paths(account).root, 'ai-threads.json')
+    const existing = this.aiStores.get(account.id)
+    if (existing !== undefined && existing.signature === file) return existing.value
+    const created = new AiThreadStore(file)
+    this.aiStores.set(account.id, { signature: file, value: created })
     return created
   }
 

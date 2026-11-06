@@ -259,6 +259,12 @@
   display: flex;
   flex: 1;
   min-height: 0;
+  position: relative;
+}
+
+.mailharbor button.active {
+  background: var(--m-accent-soft);
+  color: var(--m-text);
 }
 
 .mailharbor-list {
@@ -594,6 +600,210 @@
   white-space: nowrap;
 }
 
+/* ---------- AI rail ---------- */
+
+.mailharbor-ai {
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  flex: none;
+  min-height: 0;
+  border-left: 1px solid var(--m-line-soft);
+  background: var(--m-bg);
+}
+
+.mailharbor-ai-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--m-line-soft);
+  flex: none;
+}
+
+.mailharbor-ai-head strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mailharbor-ai-confirm {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.mailharbor-ai-context {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 14px 10px;
+  border-bottom: 1px solid var(--m-line-soft);
+  flex: none;
+}
+
+.mailharbor-ai-context strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailharbor-ai-warn {
+  padding: 8px 14px;
+  color: var(--m-warn);
+  background: rgba(221, 134, 41, 0.1);
+  font-size: 12px;
+  flex: none;
+}
+
+.mailharbor-ai-quick {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--m-line-soft);
+  flex: none;
+}
+
+.mailharbor-ai-quick button {
+  flex: 1;
+  padding: 0 6px;
+}
+
+.mailharbor-ai-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.mailharbor-ai-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 30px 12px;
+  text-align: center;
+  color: var(--m-text-3);
+}
+
+.mailharbor-ai-empty .title {
+  color: var(--m-text-2);
+  font-weight: 500;
+  font-size: 12.5px;
+}
+
+.mailharbor-ai-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--m-line-soft);
+  border-radius: 10px;
+  background: var(--m-bg-1);
+  overflow: hidden;
+}
+
+.mailharbor-ai-card.generating {
+  opacity: 0.7;
+}
+
+.mailharbor-ai-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--m-line-soft);
+  font-size: 11.5px;
+  color: var(--m-text-3);
+}
+
+.mailharbor-ai-card-head > span:first-child {
+  color: var(--m-text-2);
+  font-weight: 600;
+}
+
+.mailharbor-ai-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.mailharbor-ai-summary section h4 {
+  margin: 0 0 3px;
+  font-size: 11px;
+  color: var(--m-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mailharbor-ai-summary section p {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--m-text);
+}
+
+.mailharbor-ai-text {
+  padding: 10px 12px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--m-text);
+}
+
+.mailharbor-ai-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border-top: 1px solid var(--m-line-soft);
+}
+
+.mailharbor-ai-card-actions button {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+
+.mailharbor-ai-ask {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--m-line-soft);
+  flex: none;
+}
+
+.mailharbor-ai-ask input {
+  flex: 1;
+  height: 32px;
+}
+
+.mailharbor-ai-error {
+  color: var(--m-danger);
+  font-size: 12px;
+  padding: 0 2px;
+}
+
+@media (max-width: 1280px) {
+  .mailharbor-ai {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(420px, 94%);
+    z-index: 6;
+    border-left: 1px solid var(--m-line);
+    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45);
+  }
+}
+
 /* ---------- AI summary ---------- */
 
 .mailharbor-divider {
@@ -789,6 +999,43 @@
   background: var(--m-bg-2);
   color: var(--m-text-2);
   font-size: 12.5px;
+}
+
+/* ---------- composer AI ---------- */
+
+.mailharbor-toolbar button.ai {
+  color: var(--m-accent);
+}
+
+.mailharbor-compose-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.mailharbor-versions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+}
+
+.mailharbor-versions .chip {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--m-line);
+  border-radius: 999px;
+  color: var(--m-text-3);
+  font-size: 11px;
+}
+
+.mailharbor-versions .chip.active {
+  background: var(--m-accent-soft);
+  border-color: transparent;
+  color: var(--m-text);
 }
 
 /* ---------- settings ---------- */

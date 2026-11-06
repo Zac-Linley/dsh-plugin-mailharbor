@@ -33,6 +33,22 @@ const PATHS: Record<string, ReactNode> = {
   ),
   close: h('path', { d: 'M6 6l12 12M18 6 6 18' }),
   chevronLeft: h('path', { d: 'm14 6-6 6 6 6' }),
+  chevronRight: h('path', { d: 'm10 6 6 6-6 6' }),
+  sparkles: h(
+    'g',
+    null,
+    h('path', { d: 'm12 3 1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z' }),
+    h('path', { d: 'M18.5 15.5 19.3 18l2.2.8-2.2.7-.8 2.5-.8-2.5-2.2-.7 2.2-.8z' }),
+  ),
+  trash: h(
+    'g',
+    null,
+    h('path', {
+      d: 'M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6.5 7l.8 12a1 1 0 0 0 1 .9h7.4a1 1 0 0 0 1-.9l.8-12',
+    }),
+    h('path', { d: 'M10 11v6M14 11v6' }),
+  ),
+  send: h('path', { d: 'm4 4 17 8-17 8 3.6-8z M7.6 12H21' }),
 }
 
 export function Icon({ name, size = 16 }: { name: keyof typeof PATHS | string; size?: number }): ReactNode {

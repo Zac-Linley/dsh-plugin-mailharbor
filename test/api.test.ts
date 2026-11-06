@@ -244,6 +244,63 @@ describe('mail API', () => {
     expect(translated.html).toContain('<p>')
   })
 
+  it('persists AI cards in a per-mail thread', async () => {
+    const key = 'mid:m1@example.com'
+    const send = (payload: Record<string, unknown>): Promise<Response> =>
+      request('/mail-plugin/api/ai/cards', {
+        method: 'POST',
+        headers: { origin: base, 'content-type': 'application/json' },
+        body: JSON.stringify({ accountId, key, source: 'local', id: '1', mailbox: 'INBOX', ...payload }),
+      })
+
+    const summary = (await (await send({ kind: 'summary' })).json()) as {
+      card: { id: string; kind: string; output: string }
+      thread: { cards: unknown[] }
+    }
+    expect(summary.card.kind).toBe('summary')
+    expect(summary.thread.cards).toHaveLength(1)
+
+    const reply = (await (await send({ kind: 'reply', instruction: '确认收到' })).json()) as {
+      card: { meta: { to: string; subject: string }; html: string }
+      thread: { cards: unknown[] }
+    }
+    expect(reply.card.meta.to).toBe('alice@example.com')
+    expect(reply.card.meta.subject).toBe('Re: Hello there')
+    expect(reply.card.html).toContain('<p>')
+    expect(reply.thread.cards).toHaveLength(2)
+
+    const loaded = (await (
+      await request(`/mail-plugin/api/ai/thread?accountId=${accountId}&key=${encodeURIComponent(key)}`)
+    ).json()) as { thread: { cards: unknown[] } }
+    expect(loaded.thread.cards).toHaveLength(2)
+
+    const removed = (await (
+      await request(
+        `/mail-plugin/api/ai/cards?accountId=${accountId}&key=${encodeURIComponent(key)}&cardId=${summary.card.id}`,
+        { method: 'DELETE', headers: { origin: base } },
+      )
+    ).json()) as { thread: { cards: unknown[] } }
+    expect(removed.thread.cards).toHaveLength(1)
+
+    const cleared = await request(
+      `/mail-plugin/api/ai/thread?accountId=${accountId}&key=${encodeURIComponent(key)}`,
+      { method: 'DELETE', headers: { origin: base } },
+    )
+    expect(cleared.status).toBe(200)
+  })
+
+  it('composes and rewrites bodies through /ai/compose', async () => {
+    const result = (await (
+      await request('/mail-plugin/api/ai/compose', {
+        method: 'POST',
+        headers: { origin: base, 'content-type': 'application/json' },
+        body: JSON.stringify({ accountId, mode: 'polish', html: '<p>原文</p>', language: 'zh' }),
+      })
+    ).json()) as { text: string; html: string }
+    expect(result.text.length).toBeGreaterThan(0)
+    expect(result.html).toContain('<p>')
+  })
+
   it('exports draft CRUD', async () => {
     const created = (await (
       await request('/mail-plugin/api/drafts', {

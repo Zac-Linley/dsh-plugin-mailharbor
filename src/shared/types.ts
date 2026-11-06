@@ -229,6 +229,41 @@ export interface Page<T> {
   limit: number
 }
 
+/** One AI output, kept in a per-mail thread. */
+export type AiCardKind = 'summary' | 'reply' | 'translate' | 'answer' | 'compose'
+
+export interface AiCardMeta {
+  to?: string
+  subject?: string
+  inReplyTo?: string
+  references?: string
+  /** Translation target or reply language. */
+  target?: 'zh' | 'en'
+  language?: 'zh' | 'en'
+}
+
+export interface AiCard {
+  id: string
+  kind: AiCardKind
+  instruction: string
+  output: string
+  html?: string
+  meta?: AiCardMeta
+  provider: string
+  model: string
+  createdAt: string
+}
+
+export interface AiThread {
+  /** `mid:<message-id>` when known, else `<source>:<id>`. */
+  key: string
+  accountId: string
+  subject: string
+  messageId?: string
+  cards: AiCard[]
+  updatedAt: string
+}
+
 export interface ApiError {
   error: string
   code?: string

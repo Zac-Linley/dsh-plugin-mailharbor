@@ -1,6 +1,8 @@
 import { createElement as h, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { AppState, BackupStatus, Draft, MessageDetail, MessageSummary, Page } from '../shared/types.js'
 import { api, ApiError } from './api.js'
+import { AiRail, type AiRequest } from './ai-rail.js'
+import type { AiReplyInit } from './reply.js'
 import { AddAccountForm, AddAccountModal, LoginForm } from './account-form.js'
 import { Avatar, ErrorBar, Modal, shortDate } from './components.js'
 import { Composer, type ComposeInit } from './composer.js'
@@ -49,6 +51,8 @@ export function MailPanel(): ReactNode {
   const [backup, setBackup] = useState<BackupStatus | null>(null)
   const [toast, setToast] = useState('')
   const [narrow, setNarrow] = useState(() => matchesNarrow())
+  const [railOpen, setRailOpen] = useState(false)
+  const [aiRequest, setAiRequest] = useState<AiRequest | null>(null)
   const [tick, setTick] = useState(0)
 
   const accounts = state?.accounts ?? []
@@ -286,6 +290,46 @@ export function MailPanel(): ReactNode {
     })
   }
 
+  const requestAi = (kind: AiRequest['kind']): void => {
+    setRailOpen(true)
+    setAiRequest({ kind, nonce: Date.now() })
+  }
+
+  const insertReply = (init: AiReplyInit): void => {
+    if (selected === null) return
+    setCompose({
+      mode: 'reply',
+      accountId: selected.accountId,
+      to: init.to,
+      cc: init.cc,
+      bcc: '',
+      subject: init.subject,
+      html: init.html,
+      ...(init.inReplyTo === undefined ? {} : { inReplyTo: init.inReplyTo }),
+      ...(init.references === undefined ? {} : { references: init.references }),
+    })
+  }
+
+  const saveReplyDraft = async (init: AiReplyInit): Promise<void> => {
+    if (selected === null) return
+    try {
+      await api.saveDraft(selected.accountId, {
+        to: init.to,
+        cc: init.cc,
+        bcc: '',
+        subject: init.subject,
+        html: init.html,
+        attachments: [],
+        ...(init.inReplyTo === undefined ? {} : { inReplyTo: init.inReplyTo }),
+        ...(init.references === undefined ? {} : { references: init.references }),
+      })
+      notice('已存为草稿')
+      refresh()
+    } catch (caught) {
+      setError(errorText(caught))
+    }
+  }
+
   const openDraft = (draft: Draft): void => {
     setCompose({
       mode: 'new',
@@ -468,6 +512,16 @@ export function MailPanel(): ReactNode {
         },
         h(Icon, { name: 'archive' }),
         '备份',
+      ),
+      h(
+        'button',
+        {
+          className: railOpen ? 'ghost active' : 'ghost',
+          onClick: () => setRailOpen(!railOpen),
+          title: 'AI 工作台',
+        },
+        h(Icon, { name: 'sparkles' }),
+        'AI',
       ),
       h(
         'button',
@@ -733,21 +787,25 @@ export function MailPanel(): ReactNode {
                   mailbox,
                   onChanged: (patch) => setSelected({ ...selected, ...patch }),
                   onReply: (mode) => startCompose(mode),
-                  onAiReply: (init) =>
-                    setCompose({
-                      mode: 'reply',
-                      accountId: selected.accountId,
-                      to: init.to,
-                      cc: init.cc,
-                      bcc: '',
-                      subject: init.subject,
-                      html: init.html,
-                      inReplyTo: init.inReplyTo,
-                      references: init.references,
-                    }),
+                  onAiAction: requestAi,
                   onClose: narrow ? () => setSelected(null) : undefined,
                 }),
           ),
+          railOpen
+            ? h(AiRail, {
+                account:
+                  accounts.find((item) => item.id === (selected?.accountId ?? accountScope)) ??
+                  currentAccount,
+                detail: selected,
+                source,
+                mailbox,
+                request: aiRequest,
+                onClose: () => setRailOpen(false),
+                onInsert: insertReply,
+                onSaveDraft: (init) => void saveReplyDraft(init),
+                onNotice: notice,
+              })
+            : null,
         ),
     showBackup && backup !== null
       ? h(

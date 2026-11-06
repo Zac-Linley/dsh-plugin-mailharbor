@@ -2,6 +2,7 @@ import { createElement as h, useEffect, useRef, useState, type ReactNode } from 
 import type { Account, DraftAttachment } from '../shared/types.js'
 import { api, ApiError } from './api.js'
 import { Field, Modal } from './components.js'
+import { Icon } from './icons.js'
 
 export interface ComposeInit {
   mode: 'new' | 'reply' | 'replyAll' | 'forward'
@@ -15,6 +16,11 @@ export interface ComposeInit {
   references?: string
   draftId?: string
   attachments?: DraftAttachment[]
+}
+
+interface Version {
+  html: string
+  label: string
 }
 
 function errorText(error: unknown): string {
@@ -54,22 +60,117 @@ export function Composer({
   const [error, setError] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [draftId, setDraftId] = useState(initial.draftId)
+  const [savedAt, setSavedAt] = useState<Date | null>(null)
+  const [dirty, setDirty] = useState(0)
   const [translating, setTranslating] = useState<'zh' | 'en' | null>(null)
   const [pendingLang, setPendingLang] = useState<'zh' | 'en' | null>(null)
+  const [versions, setVersions] = useState<Version[]>([{ html: initial.html, label: '原始' }])
+  const [versionIndex, setVersionIndex] = useState(0)
+  const [aiBusy, setAiBusy] = useState<'draft' | 'polish' | 'shorten' | null>(null)
+  const [aiDraftOpen, setAiDraftOpen] = useState(false)
+  const [aiInstruction, setAiInstruction] = useState('')
+  const [hasBody, setHasBody] = useState(initial.html.trim() !== '')
   const editor = useRef<HTMLDivElement>(null)
+  const closing = useRef(false)
 
   useEffect(() => {
     if (editor.current !== null) editor.current.innerHTML = initial.html
+    setHasBody((editor.current?.innerHTML ?? '').trim() !== '')
     // The initial body is applied once; later edits own the DOM.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const html = (): string => editor.current?.innerHTML ?? ''
   const text = (): string => editor.current?.innerText ?? ''
+  const markDirty = (): void => {
+    setDirty((value) => value + 1)
+    setHasBody((editor.current?.innerHTML ?? '').trim() !== '')
+  }
 
-  const exec = (command: string, value?: string): void => {
-    editor.current?.focus()
-    document.execCommand(command, false, value)
+  const saveNow = async (): Promise<boolean> => {
+    if (to.trim() === '' && subject.trim() === '' && html().trim() === '') return false
+    try {
+      const { draft } = await api.saveDraft(account.id, {
+        ...(draftId === undefined ? {} : { id: draftId }),
+        to,
+        cc,
+        bcc,
+        subject,
+        html: html(),
+        attachments,
+        ...(initial.inReplyTo === undefined ? {} : { inReplyTo: initial.inReplyTo }),
+        ...(initial.references === undefined ? {} : { references: initial.references }),
+      })
+      setDraftId(draft.id)
+      setSavedAt(new Date())
+      setDirty(0)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  // Debounced autosave: closing the composer must never lose a draft.
+  useEffect(() => {
+    if (dirty === 0) return
+    const timer = window.setTimeout(() => {
+      void saveNow()
+    }, 2000)
+    return () => {
+      window.clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, to, cc, bcc, subject, attachments])
+
+  const close = (): void => {
+    if (closing.current) return
+    closing.current = true
+    void saveNow().finally(() => {
+      setDirty(0)
+      closing.current = false
+      onClose()
+    })
+  }
+
+  const pushVersion = (nextHtml: string, label: string): void => {
+    const base = versions.slice(0, versionIndex + 1)
+    if (base[base.length - 1]?.html !== html()) base.push({ html: html(), label: '手动' })
+    base.push({ html: nextHtml, label })
+    setVersions(base.slice(-10))
+    setVersionIndex(Math.min(base.length - 1, 9))
+    if (editor.current !== null) editor.current.innerHTML = nextHtml
+    setHasBody(nextHtml.trim() !== '')
+    markDirty()
+  }
+
+  const restoreVersion = (index: number): void => {
+    const version = versions[index]
+    if (version === undefined || editor.current === null) return
+    editor.current.innerHTML = version.html
+    setVersionIndex(index)
+    setHasBody(version.html.trim() !== '')
+    markDirty()
+  }
+
+  const runAi = async (mode: 'draft' | 'polish' | 'shorten'): Promise<void> => {
+    setAiBusy(mode)
+    setError('')
+    try {
+      const result = await api.aiCompose({
+        accountId: account.id,
+        mode,
+        instruction: aiInstruction,
+        html: html(),
+        language: 'zh',
+      })
+      pushVersion(result.html, mode === 'draft' ? 'AI 起草' : mode === 'polish' ? 'AI 润色' : 'AI 缩短')
+      setAiDraftOpen(false)
+      setAiInstruction('')
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setAiBusy(null)
+    }
   }
 
   const translate = async (target: 'zh' | 'en'): Promise<void> => {
@@ -83,12 +184,18 @@ export function Composer({
     setError('')
     try {
       const result = await api.aiTranslate({ accountId: account.id, html: html(), target })
-      editor.current.innerHTML = result.html
+      pushVersion(result.html, target === 'en' ? '翻译 EN' : '翻译 中')
     } catch (caught) {
       setError(errorText(caught))
     } finally {
       setTranslating(null)
     }
+  }
+
+  const exec = (command: string, value?: string): void => {
+    editor.current?.focus()
+    document.execCommand(command, false, value)
+    markDirty()
   }
 
   const addFiles = async (files: FileList | null): Promise<void> => {
@@ -106,30 +213,16 @@ export function Composer({
       total += file.size
     }
     setAttachments(next)
+    markDirty()
   }
 
   const saveDraft = async (): Promise<void> => {
     setBusy(true)
     setError('')
-    try {
-      const { draft } = await api.saveDraft(account.id, {
-        ...(draftId === undefined ? {} : { id: draftId }),
-        to,
-        cc,
-        bcc,
-        subject,
-        html: html(),
-        attachments,
-        ...(initial.inReplyTo === undefined ? {} : { inReplyTo: initial.inReplyTo }),
-        ...(initial.references === undefined ? {} : { references: initial.references }),
-      })
-      setDraftId(draft.id)
-      onSent('草稿已保存')
-    } catch (caught) {
-      setError(errorText(caught))
-    } finally {
-      setBusy(false)
-    }
+    const ok = await saveNow()
+    setBusy(false)
+    if (ok) onSent('草稿已保存')
+    else setError('草稿保存失败')
   }
 
   const send = async (): Promise<void> => {
@@ -175,12 +268,15 @@ export function Composer({
             : initial.mode === 'forward'
               ? '转发'
               : '写邮件',
-      onClose,
+      onClose: close,
       wide: true,
       footer: h(
         'div',
-        { style: { display: 'flex', gap: '8px', alignItems: 'center', width: '100%' } },
+        { className: 'mailharbor-compose-foot' },
         h('span', { className: 'small muted' }, `发件人 ${account.email}`),
+        savedAt === null
+          ? null
+          : h('span', { className: 'small muted' }, `已自动保存 ${savedAt.toLocaleTimeString()}`),
         h('span', { className: 'spacer' }),
         h('button', { className: 'ghost', onClick: () => void saveDraft(), disabled: busy }, '存草稿'),
         confirming
@@ -215,7 +311,10 @@ export function Composer({
         { label: '收件人' },
         h('input', {
           value: to,
-          onChange: (event: { target: { value: string } }) => setTo(event.target.value),
+          onChange: (event: { target: { value: string } }) => {
+            setTo(event.target.value)
+            markDirty()
+          },
           placeholder: 'a@example.com, b@example.com',
         }),
       ),
@@ -224,7 +323,11 @@ export function Composer({
         { label: '主题' },
         h('input', {
           value: subject,
-          onChange: (event: { target: { value: string } }) => setSubject(event.target.value),
+          onChange: (event: { target: { value: string } }) => {
+            setSubject(event.target.value)
+            markDirty()
+          },
+          placeholder: '邮件主题',
         }),
       ),
     ),
@@ -237,7 +340,10 @@ export function Composer({
             { label: '抄送' },
             h('input', {
               value: cc,
-              onChange: (event: { target: { value: string } }) => setCc(event.target.value),
+              onChange: (event: { target: { value: string } }) => {
+                setCc(event.target.value)
+                markDirty()
+              },
             }),
           ),
           h(
@@ -245,7 +351,10 @@ export function Composer({
             { label: '密送' },
             h('input', {
               value: bcc,
-              onChange: (event: { target: { value: string } }) => setBcc(event.target.value),
+              onChange: (event: { target: { value: string } }) => {
+                setBcc(event.target.value)
+                markDirty()
+              },
             }),
           ),
         )
@@ -278,8 +387,29 @@ export function Composer({
       h('span', { className: 'spacer' }),
       h(
         'button',
+        {
+          className: 'ai',
+          onClick: () => setAiDraftOpen(!aiDraftOpen),
+          disabled: aiBusy !== null,
+          title: '让 AI 起草正文',
+        },
+        h(Icon, { name: 'sparkles', size: 13 }),
+        '起草',
+      ),
+      h(
+        'button',
+        { className: 'ai', onClick: () => void runAi('polish'), disabled: aiBusy !== null || !hasBody },
+        aiBusy === 'polish' ? '润色中…' : '润色',
+      ),
+      h(
+        'button',
+        { className: 'ai', onClick: () => void runAi('shorten'), disabled: aiBusy !== null || !hasBody },
+        aiBusy === 'shorten' ? '缩短中…' : '缩短',
+      ),
+      h(
+        'button',
         { onClick: () => setPendingLang('zh'), disabled: translating !== null, title: 'AI 翻译成中文' },
-        translating === 'zh' ? '翻译中…' : '中',
+        translating === 'zh' ? '…' : '中',
       ),
       h(
         'button',
@@ -301,6 +431,26 @@ export function Composer({
         }),
       ),
     ),
+    aiDraftOpen
+      ? h(
+          'div',
+          { className: 'mailharbor-confirm' },
+          h('input', {
+            value: aiInstruction,
+            placeholder: '想让 AI 写什么？例如：确认收到，周五前给答复',
+            onChange: (event: { target: { value: string } }) => setAiInstruction(event.target.value),
+            onKeyDown: (event: { key: string }) => {
+              if (event.key === 'Enter') void runAi('draft')
+            },
+          }),
+          h(
+            'button',
+            { className: 'primary', onClick: () => void runAi('draft'), disabled: aiBusy !== null },
+            aiBusy === 'draft' ? '生成中…' : '生成',
+          ),
+          h('button', { className: 'ghost', onClick: () => setAiDraftOpen(false) }, '取消'),
+        )
+      : null,
     pendingLang === null
       ? null
       : h(
@@ -325,7 +475,10 @@ export function Composer({
                 'button',
                 {
                   className: 'subtle',
-                  onClick: () => setAttachments(attachments.filter((_item, position) => position !== index)),
+                  onClick: () => {
+                    setAttachments(attachments.filter((_item, position) => position !== index))
+                    markDirty()
+                  },
                 },
                 '✕',
               ),
@@ -339,6 +492,33 @@ export function Composer({
       suppressContentEditableWarning: true,
       'data-placeholder': '写点什么…',
       spellCheck: true,
+      onInput: markDirty,
     }),
+    h(
+      'div',
+      { className: 'mailharbor-versions' },
+      h('span', { className: 'small muted' }, '版本'),
+      versions.map((version, index) =>
+        h(
+          'button',
+          {
+            key: `${version.label}:${String(index)}`,
+            className: index === versionIndex ? 'chip active' : 'chip',
+            title: version.label,
+            onClick: () => restoreVersion(index),
+          },
+          String(index + 1),
+        ),
+      ),
+      versions.length > 1
+        ? h(
+            'button',
+            { className: 'subtle small', onClick: () => restoreVersion(Math.max(0, versionIndex - 1)) },
+            '恢复上一版',
+          )
+        : null,
+      h('span', { className: 'spacer' }),
+      h('span', { className: 'small muted' }, versions[versionIndex]?.label ?? ''),
+    ),
   )
 }

@@ -364,6 +364,118 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     return { ok: true, imap, smtp }
   })
 
+  router.get('/ai/thread', ({ url }) => {
+    const account = accountFromPayload(runtime, { accountId: url.searchParams.get('accountId') ?? undefined })
+    const key = (url.searchParams.get('key') ?? '').trim()
+    if (key === '') throw new HttpError(400, '缺少线程 key')
+    return { thread: runtime.aiThreads(account).get(key) }
+  })
+
+  router.delete('/ai/thread', ({ url }) => {
+    const account = accountFromPayload(runtime, { accountId: url.searchParams.get('accountId') ?? undefined })
+    const key = (url.searchParams.get('key') ?? '').trim()
+    if (key === '') throw new HttpError(400, '缺少线程 key')
+    return { ok: runtime.aiThreads(account).clear(key) }
+  })
+
+  router.delete('/ai/cards', ({ url }) => {
+    const account = accountFromPayload(runtime, { accountId: url.searchParams.get('accountId') ?? undefined })
+    const key = (url.searchParams.get('key') ?? '').trim()
+    const cardId = (url.searchParams.get('cardId') ?? '').trim()
+    if (key === '' || cardId === '') throw new HttpError(400, '缺少线程 key 或卡片 id')
+    return { thread: runtime.aiThreads(account).removeCard(key, cardId) }
+  })
+
+  router.post('/ai/cards', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const key = String(payload.key ?? '').trim()
+    if (key === '' || key.length > 200) throw new HttpError(400, '缺少线程 key')
+    const kind = String(payload.kind ?? '')
+    if (!['summary', 'reply', 'translate', 'answer'].includes(kind)) {
+      throw new HttpError(400, `未知的卡片类型: ${kind}`)
+    }
+    const detail = await loadDetail(
+      runtime,
+      account,
+      sourceOfPayload(payload),
+      String(payload.id ?? ''),
+      mailboxOfPayload(payload),
+    )
+    const config = runtime.current
+    const instruction = typeof payload.instruction === 'string' ? payload.instruction : ''
+    const language = payload.language === 'en' ? 'en' : 'zh'
+    const target = payload.target === 'en' ? 'en' : 'zh'
+    const ai = runtime.ai()
+    try {
+      let output = ''
+      let html: string | undefined
+      let meta: Record<string, string> | undefined
+      if (kind === 'summary') {
+        output = await ai.summarize(detail)
+      } else if (kind === 'reply') {
+        output = await ai.reply(account, detail, { instruction, language })
+        html = textToHtml(output)
+        meta = {
+          to: detail.from.address,
+          subject: /^re:/i.test(detail.subject) ? detail.subject : `Re: ${detail.subject}`,
+          inReplyTo: detail.messageId ?? '',
+          references: [detail.references.join(' '), detail.messageId ?? ''].join(' ').trim(),
+          language,
+        }
+      } else if (kind === 'translate') {
+        const source = detail.html !== null && detail.html !== '' ? detail.html : detail.text
+        output = await ai.translate(source, target)
+        html = /<[a-z][\s\S]*>/i.test(output) ? output : textToHtml(output)
+        meta = { target }
+      } else {
+        const earlier =
+          runtime
+            .aiThreads(account)
+            .get(key)
+            ?.cards.filter((card) => card.kind === 'answer')
+            .map((card) => card.output) ?? []
+        output = await ai.ask(detail, instruction, earlier)
+      }
+      const card = {
+        id: randomUUID(),
+        kind: kind as 'summary' | 'reply' | 'translate' | 'answer',
+        instruction,
+        output,
+        ...(html === undefined ? {} : { html }),
+        ...(meta === undefined ? {} : { meta }),
+        provider: config.ai.provider,
+        model: config.ai.model,
+        createdAt: new Date().toISOString(),
+      }
+      const thread = runtime.aiThreads(account).appendCard({
+        key,
+        accountId: account.id,
+        subject: detail.subject,
+        messageId: detail.messageId ?? '',
+        card,
+      })
+      return { card, thread }
+    } catch (error) {
+      throw aiHttpError(error)
+    }
+  })
+
+  router.post('/ai/compose', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const mode = payload.mode === 'polish' ? 'polish' : payload.mode === 'shorten' ? 'shorten' : 'draft'
+    const html = typeof payload.html === 'string' ? payload.html : ''
+    const instruction = typeof payload.instruction === 'string' ? payload.instruction : ''
+    const language = payload.language === 'en' ? 'en' : 'zh'
+    try {
+      const text = await runtime.ai().compose(account, { mode, instruction, html, language })
+      return { text, html: /<[a-z][\s\S]*>/i.test(text) ? text : textToHtml(text) }
+    } catch (error) {
+      throw aiHttpError(error)
+    }
+  })
+
   router.get('/ai/status', ({ url }) => {
     const requested = url.searchParams.get('accountId')
     const account =
