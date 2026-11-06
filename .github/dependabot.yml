@@ -15,6 +15,11 @@ updates:
       # ESLint 10 requires @eslint/js 10 and a flat-config migration.
       - dependency-name: eslint
         update-types: ['version-update:semver-major']
+      - dependency-name: '@eslint/js'
+        update-types: ['version-update:semver-major']
+      # Keep the type definitions on the Node 24 baseline DSH ships.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule:
