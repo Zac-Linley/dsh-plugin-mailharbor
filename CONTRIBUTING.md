@@ -55,20 +55,20 @@ Never commit real mailbox data, passwords, `.env` files, or `~/.dsh/mailharbor`.
 
 ### Publish credentials (one-time setup)
 
-The release workflow authenticates to npm with the `NPM_TOKEN` repository secret. Pick one:
+Releases publish with npm **Trusted Publishing** (OIDC); the workflow holds no npm token.
+Register the publisher once, before the first automated release:
 
-```bash
-# A) automation token from npmjs.com → Access Tokens → Generate New Token (Automation)
-gh secret set NPM_TOKEN --repo Zac-Linley/dsh-plugin-mailharbor
-```
+1. npmjs.com → package `@zaclinley/dsh-mailharbor` → Settings → Trusted publishing → GitHub Actions
+2. Organization/user `Zac-Linley`, repository `dsh-plugin-mailharbor`, workflow `release.yml`,
+   environment left empty
 
-Or B) enable **Trusted Publishing** (no token): npmjs.com → the package → Settings →
-Trusted publishing → GitHub Actions, repository `Zac-Linley/dsh-plugin-mailharbor`,
-workflow `release.yml`. Then remove the `NODE_AUTH_TOKEN` line from the workflow.
+No `NPM_TOKEN` repository secret is needed — do not add one. The workflow requests
+`id-token: write`, omits `registry-url` on `actions/setup-node` (its placeholder `.npmrc`
+would stop the OIDC exchange), and upgrades npm to the 11.x line because trusted publishing
+requires npm >= 11.5.1.
 
-Until one is configured, a Version Packages PR can be created but merging it cannot publish.
-
-The repository needs an `NPM_TOKEN` secret with publish rights for `@zaclinley/*`.
+The first version (0.1.0) was published manually: npm only accepts a trusted publisher for a
+package that already exists.
 
 ## Design rules
 
