@@ -4,7 +4,9 @@ import type { Account, BackupStatus, ImapSettings } from '../shared/types.js'
 import { CredentialManager } from './accounts.js'
 import { AiService } from './ai.js'
 import { AiThreadStore } from './ai-store.js'
-import type { DshLlm } from './dsh.js'
+import { ProjectStore } from './projects.js'
+import { TaskStore } from './tasks.js'
+import type { DshLlm, DshSessions, DshWorkspaceRegistry } from './dsh.js'
 import { BackupEngine } from './backup.js'
 import { DraftStore, draftPath } from './drafts.js'
 import {
@@ -50,13 +52,40 @@ export class MailHarborRuntime {
   private readonly aiStores = new Map<string, SignatureEntry<AiThreadStore>>()
   private readonly backups = new Map<string, BackupJob>()
   private readonly llmProvider: () => DshLlm | undefined
+  readonly workspaceRegistry: DshWorkspaceRegistry | undefined
+  readonly sessions: DshSessions | undefined
   private aiService: AiService | null = null
+  private projectStore: ProjectStore | null = null
+  private taskStore: TaskStore | null = null
   private disposed = false
 
-  constructor(options: { credentials?: CredentialManager; llm?: () => DshLlm | undefined } = {}) {
+  constructor(
+    options: {
+      credentials?: CredentialManager
+      llm?: () => DshLlm | undefined
+      workspaceRegistry?: DshWorkspaceRegistry
+      sessions?: DshSessions
+    } = {},
+  ) {
     this.config = loadConfig()
     this.credentials = options.credentials ?? new CredentialManager()
     this.llmProvider = options.llm ?? (() => undefined)
+    this.workspaceRegistry = options.workspaceRegistry
+    this.sessions = options.sessions
+  }
+
+  projects(): ProjectStore {
+    if (this.projectStore === null) {
+      this.projectStore = new ProjectStore(join(this.config.dataDir, 'projects.json'))
+    }
+    return this.projectStore
+  }
+
+  tasks(): TaskStore {
+    if (this.taskStore === null) {
+      this.taskStore = new TaskStore(join(this.config.dataDir, 'state', 'state.db'))
+    }
+    return this.taskStore
   }
 
   /** The Host model service, when the composition provides one. */
@@ -295,5 +324,6 @@ export class MailHarborRuntime {
     this.providers.clear()
     for (const db of this.databases.values()) db.value.close()
     this.databases.clear()
+    this.taskStore?.close()
   }
 }

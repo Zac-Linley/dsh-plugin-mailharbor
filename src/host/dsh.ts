@@ -62,11 +62,32 @@ export interface DshLlm {
   listModels(provider: string): Promise<{ id: string; name?: string }[]>
 }
 
+export interface DshWorkspace {
+  id?: string
+  title?: string
+}
+
+export interface DshWorkspaceRegistry {
+  create(path: string, title: string): Promise<DshWorkspace | undefined>
+}
+
+export interface DshSession {
+  append(type: string, data: unknown, options?: unknown): void
+}
+
+export interface DshSessions {
+  create(id: string, options?: { meta?: { cwd?: string } }): DshSession
+}
+
 export interface DshContext {
   webServer: DshWebServer
   tools: DshTools
   /** Cordis service lookup; returns undefined when the service is absent. */
   get?: (name: string) => unknown
+  /** Project grouping service, when the composition mounts it. */
+  workspaceRegistry?: DshWorkspaceRegistry
+  /** Session service, when the composition mounts it. */
+  sessions?: DshSessions
   effect?: (effect: () => (() => void) | void, label?: string) => void
   logger?: (name: string) => {
     info(message: string): void

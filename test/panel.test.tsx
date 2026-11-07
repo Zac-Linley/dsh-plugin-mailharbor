@@ -17,6 +17,7 @@ function state(overrides: Partial<AppState> = {}): AppState {
       ai: { enabled: true, provider: 'deepseek-account', model: 'deepseek-flash', styleSampleCount: 100 },
       read: { markOnOpen: true, pollSeconds: 60 },
       render: { listLimit: 40 },
+      projects: { root: '/tmp/projects' },
     },
     accounts: [],
     activeAccountId: null,

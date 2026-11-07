@@ -59,6 +59,19 @@ export class CredentialManager {
     this.secrets.delete(account.keychainService, account.email)
   }
 
+  /** Read an arbitrary secret (for example a CalDAV app password). */
+  readSecret(service: string, account: string): string | undefined {
+    return this.secrets.read(service, account)
+  }
+
+  writeSecret(service: string, account: string, secret: string): boolean {
+    return this.secrets.write(service, account, secret)
+  }
+
+  deleteSecret(service: string, account: string): boolean {
+    return this.secrets.delete(service, account)
+  }
+
   status(account: Account): CredentialStatus {
     const resolved = this.resolve(account)
     return {

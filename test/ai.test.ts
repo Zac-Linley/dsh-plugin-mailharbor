@@ -24,6 +24,7 @@ function config(overrides: Partial<MailHarborConfig['ai']> = {}): MailHarborConf
     },
     read: { markOnOpen: true, pollSeconds: 60 },
     render: { listLimit: 40 },
+    projects: { root: '/tmp/projects' },
     oauth: {
       google: { clientId: '', redirectPort: 8765, scopes: [] },
       microsoft: { clientId: '', scopes: [] },

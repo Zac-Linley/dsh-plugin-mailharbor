@@ -61,6 +61,7 @@ export function Reader({
   onChanged,
   onReply,
   onAiAction,
+  onExtractTasks,
   onClose,
 }: {
   detail: MessageDetail
@@ -69,6 +70,7 @@ export function Reader({
   onChanged: (patch: Partial<MessageDetail>) => void
   onReply: (mode: 'reply' | 'replyAll' | 'forward') => void
   onAiAction: (action: ReaderAiAction) => void
+  onExtractTasks: () => void
   onClose?: () => void
 }): ReactNode {
   const [plain, setPlain] = useState(false)
@@ -176,6 +178,12 @@ export function Reader({
         ),
         h('button', { className: 'ghost', onClick: () => onAiAction('reply') }, 'AI 回复'),
         h('button', { className: 'ghost', onClick: () => onAiAction('translate') }, 'AI 翻译'),
+        h(
+          'button',
+          { className: 'ghost', onClick: onExtractTasks },
+          h(Icon, { name: 'checklist', size: 14 }),
+          '提取任务',
+        ),
         h('span', { className: 'spacer' }),
         html
           ? h(

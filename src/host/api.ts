@@ -12,7 +12,9 @@ import type {
   MessageSummary,
   NewAccountInput,
   Page,
+  Project,
   SendResult,
+  Task,
   SettingsView,
 } from '../shared/types.js'
 import { addressOf, formatAddressList, parseAddressList } from './address.js'
@@ -23,9 +25,13 @@ import {
   saveSettings,
   type MailHarborConfig,
 } from './config.js'
+import { resolveUserPath } from './paths.js'
 import { BackupEngine } from './backup.js'
 import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestContext } from './http.js'
 import { normalizeTranslated, summaryBlocks, textToHtml } from './ai.js'
+import { CalDavClient } from './caldav.js'
+import { appendConversation, createProject, type ProjectRecord } from './projects.js'
+import type { TaskRecord } from './tasks.js'
 import { VERSION } from './version.js'
 import type { MailHarborRuntime } from './runtime.js'
 import type { ImapProvider } from './imap.js'
@@ -140,6 +146,23 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       .database(account)
       .list({ mailbox: mailbox === '' ? 'all' : mailbox, query, offset, limit })
     return { ...page, items: page.items.map((item) => localSummary(runtime, account, item)) }
+  })
+
+  router.get('/messages/lookup', ({ url }) => {
+    const account = accountFromPayload(runtime, { accountId: url.searchParams.get('accountId') ?? undefined })
+    const key = url.searchParams.get('key') ?? ''
+    if (key.startsWith('local:')) {
+      const id = Number(key.slice(6))
+      const detail = runtime.database(account).get(id)
+      if (detail === undefined) throw new HttpError(404, '邮件不存在')
+      return { id: String(id), mailbox: detail.mailbox, subject: detail.subject }
+    }
+    if (key.startsWith('mid:')) {
+      const found = runtime.database(account).findByMessageId(key.slice(4))
+      if (found === undefined) throw new HttpError(404, '本地备份里找不到这封邮件')
+      return { id: String(found.id), mailbox: found.mailbox, subject: '' }
+    }
+    throw new HttpError(400, '无法定位这封邮件')
   })
 
   router.get('/messages/:id', async ({ url, params }) => {
@@ -566,6 +589,224 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     }
   })
 
+  // ---- tasks ----
+
+  router.get('/tasks', ({ url }) => {
+    const account = accountFromPayload(runtime, { accountId: url.searchParams.get('accountId') ?? undefined })
+    const items = runtime.tasks().list({
+      accountId: account.id,
+      status: url.searchParams.get('status') ?? '',
+      projectId: url.searchParams.get('projectId') ?? '',
+      query: url.searchParams.get('query') ?? '',
+    })
+    return { items: items.map(taskView), calendar: runtime.tasks().calendarState(account.id) }
+  })
+
+  router.post('/tasks', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const task = runtime.tasks().create({
+      accountId: account.id,
+      title: String(payload.title ?? ''),
+      notes: typeof payload.notes === 'string' ? payload.notes : '',
+      due: typeof payload.due === 'string' ? payload.due : '',
+      status: typeof payload.status === 'string' ? payload.status : 'NEEDS-ACTION',
+      priority: Number(payload.priority ?? 0),
+      owner: typeof payload.owner === 'string' ? payload.owner : '',
+      projectId: typeof payload.projectId === 'string' ? payload.projectId : null,
+      messageKey: typeof payload.messageKey === 'string' ? payload.messageKey : '',
+      messageSubject: typeof payload.messageSubject === 'string' ? payload.messageSubject : '',
+    })
+    return { task: taskView(task) }
+  })
+
+  router.patch('/tasks/:id', async ({ params, body }) => {
+    const payload = await body()
+    const task = runtime.tasks().update(String(params.id ?? ''), {
+      ...(typeof payload.title === 'string' ? { title: payload.title } : {}),
+      ...(typeof payload.notes === 'string' ? { notes: payload.notes } : {}),
+      ...(typeof payload.due === 'string' ? { due: payload.due } : {}),
+      ...(typeof payload.status === 'string' ? { status: payload.status } : {}),
+      ...(typeof payload.priority === 'number' ? { priority: payload.priority } : {}),
+      ...(typeof payload.owner === 'string' ? { owner: payload.owner } : {}),
+      ...(payload.projectId === null || typeof payload.projectId === 'string'
+        ? { projectId: payload.projectId }
+        : {}),
+    })
+    return { task: taskView(task) }
+  })
+
+  router.delete('/tasks/:id', ({ params }) => {
+    const removed = runtime.tasks().remove(String(params.id ?? ''))
+    if (!removed) throw new HttpError(404, '任务不存在')
+    return { ok: true }
+  })
+
+  router.post('/tasks/extract', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const detail = await loadDetail(
+      runtime,
+      account,
+      sourceOfPayload(payload),
+      String(payload.id ?? ''),
+      mailboxOfPayload(payload),
+    )
+    try {
+      const suggestions = await runtime.ai().extractTasks(detail)
+      return { suggestions }
+    } catch (error) {
+      throw aiHttpError(error)
+    }
+  })
+
+  router.get('/tasks/caldav', ({ url }) => {
+    const account = accountFromPayload(runtime, { accountId: url.searchParams.get('accountId') ?? undefined })
+    return {
+      caldav: account.caldav,
+      calendar: runtime.tasks().calendarState(account.id),
+      hasPassword:
+        runtime.credentials.readSecret(`${account.keychainService}:caldav`, account.email) !== undefined,
+    }
+  })
+
+  router.put('/tasks/caldav', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const url = String(payload.url ?? '').trim()
+    const username = String(payload.username ?? '').trim()
+    const calendarHref = String(payload.calendarHref ?? '').trim()
+    const caldav = url === '' ? null : { url, username, ...(calendarHref === '' ? {} : { calendarHref }) }
+    const accounts = runtime.current.accounts.map((item) =>
+      item.id === account.id ? { ...item, caldav } : item,
+    )
+    saveAccounts(accounts, runtime.current.activeAccountId)
+    if (typeof payload.password === 'string' && payload.password !== '') {
+      runtime.credentials.writeSecret(`${account.keychainService}:caldav`, account.email, payload.password)
+    }
+    runtime.refresh()
+    const updated = runtime.current.accounts.find((item) => item.id === account.id) ?? account
+    return {
+      caldav: updated.caldav,
+      title: '',
+      hasPassword:
+        runtime.credentials.readSecret(`${updated.keychainService}:caldav`, updated.email) !== undefined,
+    }
+  })
+
+  router.post('/tasks/sync', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const caldav = account.caldav
+    if (caldav === null) throw new HttpError(400, '请先配置 CalDAV 地址和账号')
+    const password = runtime.credentials.readSecret(`${account.keychainService}:caldav`, account.email)
+    if (password === undefined || password === '') throw new HttpError(400, '请先保存 CalDAV 应用密码')
+    try {
+      const client = new CalDavClient(caldav, password)
+      const result = await runtime.tasks().sync(account.id, client)
+      if (result.calendarHref !== '' && result.calendarHref !== (caldav.calendarHref ?? '')) {
+        const accounts = runtime.current.accounts.map((item) =>
+          item.id === account.id
+            ? { ...item, caldav: { ...caldav, calendarHref: result.calendarHref } }
+            : item,
+        )
+        saveAccounts(accounts, runtime.current.activeAccountId)
+        runtime.refresh()
+      }
+      return { result, calendar: runtime.tasks().calendarState(account.id) }
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : String(error))
+    }
+  })
+
+  // ---- projects ----
+
+  router.get('/projects', () => ({ items: runtime.projects().list().map(projectView) }))
+
+  router.get('/projects/for', ({ url }) => {
+    const account = accountFromPayload(runtime, { accountId: url.searchParams.get('accountId') ?? undefined })
+    const key = url.searchParams.get('key') ?? ''
+    return {
+      project:
+        key === ''
+          ? null
+          : (() => {
+              const found = runtime.projects().findByMessage(account.id, key)
+              return found === undefined ? null : projectView(found)
+            })(),
+    }
+  })
+
+  router.post('/projects', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const name = String(payload.name ?? '').trim()
+    const root = String(payload.root ?? '').trim() || runtime.current.projects.root
+    const conversation = typeof payload.conversation === 'string' ? payload.conversation : ''
+    const message = asObject(payload.message)
+    const key = typeof message.key === 'string' ? message.key : ''
+    const result = await createProject({
+      store: runtime.projects(),
+      input: {
+        name,
+        root,
+        conversation,
+        accountId: account.id,
+        ...(key === ''
+          ? {}
+          : {
+              message: {
+                accountId: account.id,
+                key,
+                subject: String(message.subject ?? ''),
+                date: String(message.date ?? ''),
+              },
+            }),
+        ...(key === '' ? {} : { thread: { accountId: account.id, key } }),
+      },
+      registry: runtime.workspaceRegistry,
+      sessions: runtime.sessions,
+    })
+    return { project: projectView(result.project), warnings: result.warnings }
+  })
+
+  router.post('/projects/:id/messages', async ({ params, body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const project = runtime.projects().addMessage(String(params.id ?? ''), {
+      accountId: account.id,
+      key: String(payload.key ?? ''),
+      subject: String(payload.subject ?? ''),
+      date: String(payload.date ?? ''),
+    })
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    return { project: projectView(project) }
+  })
+
+  router.delete('/projects/:id/messages', ({ params, url }) => {
+    const account = accountFromPayload(runtime, { accountId: url.searchParams.get('accountId') ?? undefined })
+    const key = url.searchParams.get('key') ?? ''
+    const project = runtime.projects().removeMessage(String(params.id ?? ''), account.id, key)
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    return { project: projectView(project) }
+  })
+
+  router.post('/projects/:id/transfer', async ({ params, body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const project = runtime.projects().get(String(params.id ?? ''))
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    const conversation = typeof payload.conversation === 'string' ? payload.conversation : ''
+    if (conversation.trim() === '') throw new HttpError(400, '没有可转移的 AI 记录')
+    appendConversation(project, conversation)
+    const key = typeof payload.key === 'string' ? payload.key : ''
+    const updated =
+      key === ''
+        ? runtime.projects().update(project.id, {})
+        : runtime.projects().addThread(project.id, { accountId: account.id, key })
+    return { project: projectView(updated ?? project) }
+  })
+
   router.get('/settings', () => settingsView(runtime.current))
 
   router.patch('/settings', async ({ body }) => {
@@ -575,6 +816,11 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     if (payload.ai !== undefined) patch.ai = asObject(payload.ai)
     if (payload.read !== undefined) patch.read = asObject(payload.read)
     if (payload.render !== undefined) patch.render = asObject(payload.render)
+    if (payload.projects !== undefined) {
+      const root = String(asObject(payload.projects).root ?? '').trim()
+      if (root === '') throw new HttpError(400, '项目目录不能为空')
+      patch.projects = { root: resolveUserPath(root, '项目目录') }
+    }
     saveSettings(patch)
     runtime.refresh()
     return { settings: settingsView(runtime.current) }
@@ -749,6 +995,42 @@ function settingsView(config: MailHarborConfig): SettingsView {
     },
     read: { markOnOpen: config.read.markOnOpen, pollSeconds: config.read.pollSeconds },
     render: { listLimit: config.render.listLimit },
+    projects: { root: config.projects.root },
+  }
+}
+
+function taskView(task: TaskRecord): Task {
+  return {
+    id: task.id,
+    accountId: task.accountId,
+    projectId: task.projectId,
+    title: task.title,
+    notes: task.notes,
+    due: task.due,
+    status: task.status as Task['status'],
+    priority: task.priority,
+    owner: task.owner,
+    messageKey: task.messageKey,
+    messageSubject: task.messageSubject,
+    dirty: task.dirty,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+    completedAt: task.completedAt,
+  }
+}
+
+function projectView(project: ProjectRecord): Project {
+  return {
+    id: project.id,
+    name: project.name,
+    path: project.path,
+    workspaceId: project.workspaceId,
+    sessionId: project.sessionId,
+    accountIds: [...project.accountIds],
+    messages: project.messages.map((message) => ({ ...message })),
+    threads: project.threads.map((thread) => ({ ...thread })),
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
   }
 }
 

@@ -15,7 +15,7 @@ and read state.
 - Package: `@zaclinley/dsh-mailharbor`
 - Requirements: **DSH `>=0.2.2-0 <0.3.0`**, Node **>=24.9** (the runtime bundled with DSH is fine)
 - License: MIT
-- Status: **v0.4.0 — core mail workspace plus a persistent AI workspace** (summary, reply, translate, Q&A, writing style, composer version stack). OAuth2 and CalDAV are next (see [Roadmap](#roadmap)).
+- Status: **v0.5.0 — mail workspace, AI workspace, projects and tasks** (summary, reply, translate, Q&A, writing style, project workspaces with the AI conversation, a task panel with CalDAV). OAuth2 is next (see [Roadmap](#roadmap)).
 
 ## Features
 

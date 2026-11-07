@@ -73,15 +73,24 @@ describe('built client bundle', () => {
       },
     }
     ;(module.apply as (context: typeof ctx) => void)(ctx)
-    expect(injected).toEqual(['main', 'settings.section', 'sidebar.panellist'])
+    expect(injected).toEqual(['main', 'settings.section', 'sidebar.panellist', 'main', 'sidebar.panellist'])
     expect(registrations.map((entry) => entry.options.name)).toEqual([
       'main',
       'settings.section',
       'sidebar.panellist',
+      'main',
+      'sidebar.panellist',
     ])
-    expect(registrations[0]?.options.key).toBe('mailharbor')
-    expect(registrations[1]?.options.id).toBe('mailharbor')
-    expect(registrations[2]?.options.id).toBe('mailharbor')
+    expect(registrations.find((entry) => entry.options.key === 'mailharbor')).toBeTruthy()
+    expect(registrations.find((entry) => entry.options.key === 'mailharbor-tasks')).toBeTruthy()
+    expect(
+      registrations
+        .filter((entry) => entry.options.name === 'sidebar.panellist')
+        .map((entry) => entry.options.id),
+    ).toEqual(['mailharbor', 'mailharbor-tasks'])
+    expect(registrations.find((entry) => entry.options.name === 'settings.section')?.options.id).toBe(
+      'mailharbor',
+    )
     expect(registrations.every((entry) => typeof entry.component === 'function')).toBe(true)
   })
 })

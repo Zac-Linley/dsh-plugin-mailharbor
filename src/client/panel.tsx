@@ -1,5 +1,14 @@
 import { createElement as h, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { AppState, BackupStatus, Draft, MessageDetail, MessageSummary, Page } from '../shared/types.js'
+import type {
+  AppState,
+  BackupStatus,
+  Draft,
+  MessageDetail,
+  MessageSummary,
+  Page,
+  Project,
+  TaskSuggestion,
+} from '../shared/types.js'
 import { api, ApiError } from './api.js'
 import { AiRail, type AiRequest } from './ai-rail.js'
 import type { AiReplyInit } from './reply.js'
@@ -8,6 +17,7 @@ import { Avatar, ErrorBar, Modal, shortDate } from './components.js'
 import { Composer, type ComposeInit } from './composer.js'
 import { Icon } from './icons.js'
 import { Reader } from './reader.js'
+import { consumeOpenMail, type OpenMailRequest } from './nav.js'
 
 interface Folder {
   name: string
@@ -52,6 +62,12 @@ export function MailPanel(): ReactNode {
   const [toast, setToast] = useState('')
   const [narrow, setNarrow] = useState(() => matchesNarrow())
   const [railOpen, setRailOpen] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
+  const [projectOptions, setProjectOptions] = useState<Project[]>([])
+  const [targetProject, setTargetProject] = useState('')
+  const [extraction, setExtraction] = useState<{ items: TaskSuggestion[]; checked: boolean[] } | null>(null)
+  const [extractBusy, setExtractBusy] = useState(false)
   const [aiRequest, setAiRequest] = useState<AiRequest | null>(null)
   const [tick, setTick] = useState(0)
 
@@ -61,6 +77,133 @@ export function MailPanel(): ReactNode {
   const composeAccount =
     accounts.find((item) => item.id === compose?.accountId) ?? account ?? accounts[0] ?? null
   const showingDrafts = mailbox === DRAFTS && source === 'local'
+
+  const keyOf = (item: MessageSummary): string =>
+    item.messageId !== undefined && item.messageId !== '' ? `mid:${item.messageId}` : `local:${item.id}`
+
+  // The tasks panel can ask the mail panel to open a source message.
+  const openFromRequest = useCallback((detail: OpenMailRequest): void => {
+    setAccountScope(detail.accountId)
+    setSource('local')
+    setMailbox(detail.mailbox === '' ? 'all' : detail.mailbox)
+    api
+      .activateAccount(detail.accountId)
+      .then(() => {
+        setRailOpen(false)
+        return api.message({
+          id: detail.id,
+          accountId: detail.accountId,
+          source: 'local',
+          mailbox: detail.mailbox === '' ? 'all' : detail.mailbox,
+        })
+      })
+      .then((message) => setSelected(message))
+      .catch((caught: unknown) => setError(errorText(caught)))
+  }, [])
+
+  useEffect(() => {
+    const queued = consumeOpenMail()
+    if (queued !== null) openFromRequest(queued)
+    const onOpen = (event: Event): void => {
+      const detail = (event as CustomEvent<OpenMailRequest>).detail
+      if (detail !== undefined) openFromRequest(detail)
+    }
+    window.addEventListener('mailharbor:open-mail', onOpen)
+    return () => {
+      window.removeEventListener('mailharbor:open-mail', onOpen)
+    }
+  }, [openFromRequest])
+
+  const enterSelect = async (): Promise<void> => {
+    setSelectMode(true)
+    try {
+      const list = await api.projects()
+      setProjectOptions(list.items)
+      setTargetProject(list.items[0]?.id ?? '')
+    } catch (caught) {
+      setError(errorText(caught))
+    }
+  }
+
+  const toggleSelect = (item: MessageSummary): void => {
+    const key = `${item.accountId}:${item.id}`
+    setSelectedKeys((current) =>
+      current.includes(key) ? current.filter((entry) => entry !== key) : [...current, key],
+    )
+  }
+
+  const addSelectedToProject = async (): Promise<void> => {
+    if (targetProject === '') {
+      setError('先创建一个项目')
+      return
+    }
+    const chosen = items.filter((item) => selectedKeys.includes(`${item.accountId}:${item.id}`))
+    if (chosen.length === 0) return
+    try {
+      for (const item of chosen) {
+        await api.addProjectMessage(targetProject, {
+          accountId: item.accountId,
+          key: keyOf(item),
+          subject: item.subject,
+          date: item.date,
+        })
+      }
+      notice(`已加入项目：${String(chosen.length)} 封`)
+      setSelectMode(false)
+      setSelectedKeys([])
+    } catch (caught) {
+      setError(errorText(caught))
+    }
+  }
+
+  const extractTasks = async (): Promise<void> => {
+    if (selected === null) return
+    setExtractBusy(true)
+    try {
+      const result = await api.extractTasks({
+        accountId: selected.accountId,
+        source,
+        id: selected.id,
+        mailbox,
+      })
+      if (result.suggestions.length === 0) {
+        notice('这封邮件没有提取到明确任务')
+        return
+      }
+      setExtraction({ items: result.suggestions, checked: result.suggestions.map(() => true) })
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setExtractBusy(false)
+    }
+  }
+
+  const saveExtraction = async (): Promise<void> => {
+    if (extraction === null || selected === null) return
+    setExtractBusy(true)
+    try {
+      const key = keyOf(selected)
+      for (const [index, suggestion] of extraction.items.entries()) {
+        if (!extraction.checked[index]) continue
+        await api.createTask({
+          accountId: selected.accountId,
+          title: suggestion.title,
+          notes: suggestion.notes,
+          due: suggestion.due,
+          priority: suggestion.priority,
+          owner: suggestion.owner,
+          messageKey: key,
+          messageSubject: selected.subject,
+        })
+      }
+      setExtraction(null)
+      notice('任务已保存，可在「任务」面板查看')
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setExtractBusy(false)
+    }
+  }
 
   const refresh = useCallback((): void => {
     setTick((value) => value + 1)
@@ -577,6 +720,25 @@ export function MailPanel(): ReactNode {
                   }
                 },
               }),
+              source === 'local'
+                ? h(
+                    'button',
+                    {
+                      className: selectMode ? 'ghost active' : 'ghost',
+                      title: '选择多封邮件加入项目',
+                      onClick: () => {
+                        if (selectMode) {
+                          setSelectMode(false)
+                          setSelectedKeys([])
+                        } else {
+                          void enterSelect()
+                        }
+                      },
+                    },
+                    Icon({ name: 'checklist', size: 14 }),
+                    '选择',
+                  )
+                : null,
               query !== search || search !== ''
                 ? h(
                     'button',
@@ -592,6 +754,47 @@ export function MailPanel(): ReactNode {
                   )
                 : null,
             ),
+            selectMode
+              ? h(
+                  'div',
+                  { className: 'mailharbor-selectbar' },
+                  h('span', { className: 'small' }, `已选 ${String(selectedKeys.length)} 封`),
+                  h('span', { className: 'spacer' }),
+                  h(
+                    'select',
+                    {
+                      value: targetProject,
+                      onChange: (event: { target: { value: string } }) =>
+                        setTargetProject(event.target.value),
+                      'aria-label': '目标项目',
+                    },
+                    h('option', { value: '' }, projectOptions.length === 0 ? '还没有项目' : '选择项目'),
+                    projectOptions.map((project) =>
+                      h('option', { key: project.id, value: project.id }, project.name),
+                    ),
+                  ),
+                  h(
+                    'button',
+                    {
+                      className: 'primary',
+                      disabled: selectedKeys.length === 0 || targetProject === '',
+                      onClick: () => void addSelectedToProject(),
+                    },
+                    '加入项目',
+                  ),
+                  h(
+                    'button',
+                    {
+                      className: 'ghost',
+                      onClick: () => {
+                        setSelectMode(false)
+                        setSelectedKeys([])
+                      },
+                    },
+                    '取消',
+                  ),
+                )
+              : null,
             h(
               'div',
               { className: 'mailharbor-rows' },
@@ -704,21 +907,36 @@ export function MailPanel(): ReactNode {
                           'div',
                           {
                             key: `${item.accountId}:${item.id}`,
-                            className: `mailharbor-row${item.unread ? ' unread' : ''}${selected?.id === item.id && selected?.accountId === item.accountId ? ' selected' : ''}`,
+                            className: `mailharbor-row${item.unread ? ' unread' : ''}${selected?.id === item.id && selected?.accountId === item.accountId ? ' selected' : ''}${selectMode ? ' selectable' : ''}`,
                             role: 'button',
                             tabIndex: 0,
-                            onClick: () => void openMessage(item),
+                            onClick: () => {
+                              if (selectMode) toggleSelect(item)
+                              else void openMessage(item)
+                            },
                             onKeyDown: (event: { key: string; preventDefault: () => void }) => {
                               if (event.key === 'Enter' || event.key === ' ') {
                                 event.preventDefault()
-                                void openMessage(item)
+                                if (selectMode) toggleSelect(item)
+                                else void openMessage(item)
                               }
                             },
                           },
                           h(
                             'span',
                             { className: 'line-1' },
-                            item.unread ? h('span', { className: 'dot' }) : null,
+                            selectMode
+                              ? h('input', {
+                                  type: 'checkbox',
+                                  checked: selectedKeys.includes(`${item.accountId}:${item.id}`),
+                                  'aria-label': '选择邮件',
+                                  onClick: (event: { stopPropagation: () => void }) =>
+                                    event.stopPropagation(),
+                                  onChange: () => toggleSelect(item),
+                                })
+                              : item.unread
+                                ? h('span', { className: 'dot' })
+                                : null,
                             h(
                               'span',
                               { className: 'from' },
@@ -788,6 +1006,7 @@ export function MailPanel(): ReactNode {
                   onChanged: (patch) => setSelected({ ...selected, ...patch }),
                   onReply: (mode) => startCompose(mode),
                   onAiAction: requestAi,
+                  onExtractTasks: () => void extractTasks(),
                   onClose: narrow ? () => setSelected(null) : undefined,
                 }),
           ),
@@ -840,6 +1059,66 @@ export function MailPanel(): ReactNode {
             'div',
             { className: 'mailharbor-log' },
             backup.output.length === 0 ? '（等待输出…）' : backup.output.join('\n'),
+          ),
+        )
+      : null,
+    extraction !== null
+      ? h(
+          Modal,
+          {
+            title: '提取任务',
+            onClose: () => setExtraction(null),
+            footer: h(
+              'div',
+              { style: { display: 'flex', gap: '8px', width: '100%', alignItems: 'center' } },
+              h('span', { className: 'small muted' }, '勾选要保存的任务；保存后可到「任务」面板跟进。'),
+              h('span', { className: 'spacer' }),
+              h('button', { className: 'ghost', onClick: () => setExtraction(null) }, '取消'),
+              h(
+                'button',
+                {
+                  className: 'primary',
+                  disabled: extractBusy || extraction.checked.every((value) => !value),
+                  onClick: () => void saveExtraction(),
+                },
+                extractBusy ? '保存中…' : '保存任务',
+              ),
+            ),
+          },
+          h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+            extraction.items.map((item, index) =>
+              h(
+                'label',
+                { key: `${item.title}:${String(index)}`, className: 'mailharbor-extract-row' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: extraction.checked[index] ?? false,
+                  onChange: () => {
+                    const checked = [...extraction.checked]
+                    checked[index] = !checked[index]
+                    setExtraction({ ...extraction, checked })
+                  },
+                }),
+                h(
+                  'span',
+                  null,
+                  h('strong', null, item.title),
+                  h(
+                    'span',
+                    { className: 'small muted' },
+                    [
+                      item.due === '' ? '' : `截止 ${item.due}`,
+                      item.owner === '' ? '' : `负责人 ${item.owner}`,
+                      item.notes,
+                    ]
+                      .filter((part) => part !== '')
+                      .join(' · '),
+                  ),
+                ),
+              ),
+            ),
           ),
         )
       : null,

@@ -11,12 +11,28 @@ export { VERSION } from './version.js'
 
 const ROUTE = '/mail-plugin'
 
+function optionalService<T>(ctx: DshContext, name: string): T | undefined {
+  try {
+    const direct = (ctx as unknown as Record<string, unknown>)[name]
+    if (direct !== undefined && direct !== null) return direct as T
+  } catch {
+    // Guarded service access throws when the service is not injected.
+  }
+  try {
+    return (ctx.get?.(name) as T | undefined) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * MailHarbor Host half: one HTTP prefix for the panel, plus `mail_*` agent
  * tools when the composition provides the tool registry.
  */
 export function apply(ctx: DshContext): void {
   const runtime = new MailHarborRuntime({
+    workspaceRegistry: optionalService(ctx, 'workspaceRegistry'),
+    sessions: optionalService(ctx, 'sessions'),
     llm: () => {
       if (typeof ctx.get !== 'function') return undefined
       try {

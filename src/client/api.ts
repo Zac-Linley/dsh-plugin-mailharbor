@@ -2,6 +2,9 @@ import type {
   Account,
   AiCard,
   AiThread,
+  Project,
+  Task,
+  TaskSuggestion,
   AppState,
   AttachmentMeta,
   BackupStatus,
@@ -276,6 +279,101 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ accountId: accountId ?? null }),
     }),
+
+  tasks: (accountId: string | null, params: { status?: string; projectId?: string; query?: string } = {}) =>
+    request<{ items: Task[]; calendar: { calendarHref: string; lastSync: string; error: string } | null }>(
+      `tasks${query({ accountId: accountId ?? null, ...params })}`,
+    ),
+
+  createTask: (payload: Record<string, unknown>) =>
+    request<{ task: Task }>('tasks', { method: 'POST', body: JSON.stringify(payload) }),
+
+  updateTask: (id: string, patch: Record<string, unknown>) =>
+    request<{ task: Task }>(`tasks/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+
+  deleteTask: (id: string) => request<{ ok: true }>(`tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  extractTasks: (payload: {
+    accountId?: string | null
+    source: 'local' | 'server'
+    id: string
+    mailbox: string
+  }) =>
+    request<{ suggestions: TaskSuggestion[] }>('tasks/extract', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  taskCaldav: (accountId: string | null) =>
+    request<{
+      caldav: { url: string; username: string; calendarHref?: string } | null
+      calendar: { calendarHref: string; lastSync: string; error: string } | null
+      hasPassword: boolean
+    }>(`tasks/caldav${query({ accountId: accountId ?? null })}`),
+
+  saveTaskCaldav: (payload: {
+    accountId?: string | null
+    url: string
+    username: string
+    password?: string
+    calendarHref?: string
+  }) =>
+    request<{ caldav: unknown; hasPassword: boolean }>('tasks/caldav', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  syncTasks: (accountId: string | null) =>
+    request<{
+      result: { pulled: number; pushed: number; deleted: number; removed: number }
+      calendar: unknown
+    }>('tasks/sync', { method: 'POST', body: JSON.stringify({ accountId }) }),
+
+  projects: () => request<{ items: Project[] }>('projects'),
+
+  projectFor: (accountId: string | null, key: string) =>
+    request<{ project: Project | null }>(`projects/for${query({ accountId: accountId ?? null, key })}`),
+
+  createProject: (payload: {
+    accountId?: string | null
+    name: string
+    root: string
+    conversation: string
+    message?: { key: string; subject: string; date: string }
+  }) =>
+    request<{ project: Project; warnings: string[] }>('projects', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  addProjectMessage: (
+    id: string,
+    payload: { accountId?: string | null; key: string; subject: string; date: string },
+  ) =>
+    request<{ project: Project }>(`projects/${encodeURIComponent(id)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  removeProjectMessage: (id: string, accountId: string | null, key: string) =>
+    request<{ project: Project }>(
+      `projects/${encodeURIComponent(id)}/messages${query({ accountId: accountId ?? null, key })}`,
+      { method: 'DELETE' },
+    ),
+
+  transferProject: (id: string, payload: { accountId?: string | null; key?: string; conversation: string }) =>
+    request<{ project: Project }>(`projects/${encodeURIComponent(id)}/transfer`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  lookupMessage: (accountId: string | null, key: string) =>
+    request<{ id: string; mailbox: string; subject: string }>(
+      `messages/lookup${query({ accountId: accountId ?? null, key })}`,
+    ),
 
   settings: () => request<SettingsView>('settings'),
 

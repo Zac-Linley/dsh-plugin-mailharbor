@@ -88,6 +88,17 @@ const COMPOSE_SYSTEM = (mode: 'draft' | 'polish' | 'shorten', language: string, 
   return `你是邮件写作助理。根据用户给出的要点写一封邮件正文。\n\n要求：\n${shared}${styleLine}`
 }
 
+const TASK_SYSTEM = `你是任务提取助手。从邮件中提取需要用户处理的具体事项。
+
+只输出一个 JSON 数组，不要输出解释、Markdown 或代码块标记。每个元素：
+{"title": "任务标题（动词开头，尽量具体）", "due": "YYYY-MM-DD 或空字符串", "priority": 0 到 9 的整数, "owner": "负责人或空字符串", "notes": "一句来源依据"}
+
+规则：
+- 只提取邮件里明确要求、或明显需要跟进的事项
+- 截止时间能确定才填，否则留空
+- 没有可执行事项时输出 []
+- 不要编造邮件里没有的信息`
+
 const STYLE_SYSTEM = `你是写作风格分析师。阅读用户最近发出的邮件，用简体中文写一段 150-300 字的写作风格档案，覆盖：
 常用称呼、开头方式、结尾与署名、语气（正式/亲切/直接）、句子长短、常用表达或口头禅。
 只输出档案正文，不要输出标题、列表符号或分析过程。`
@@ -309,6 +320,12 @@ export class AiService {
     return this.complete(ASK_SYSTEM, user, signal)
   }
 
+  /** Extract actionable tasks from one mail. */
+  async extractTasks(message: MessageDetail, signal?: AbortSignal): Promise<TaskSuggestion[]> {
+    const text = await this.complete(TASK_SYSTEM, contextOf(message), signal)
+    return parseTaskJson(text)
+  }
+
   /** Compose-body assistance: draft from points, polish, or shorten. */
   async compose(
     account: Account,
@@ -409,6 +426,43 @@ export function htmlToPlain(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+}
+
+export interface TaskSuggestion {
+  title: string
+  due: string
+  priority: number
+  owner: string
+  notes: string
+}
+
+/** Parse the model's JSON array, tolerating code fences and prose around it. */
+export function parseTaskJson(text: string): TaskSuggestion[] {
+  const start = text.indexOf('[')
+  const end = text.lastIndexOf(']')
+  if (start < 0 || end <= start) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1))
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+  const result: TaskSuggestion[] = []
+  for (const item of parsed) {
+    if (item === null || typeof item !== 'object') continue
+    const value = item as Record<string, unknown>
+    const title = String(value.title ?? '').trim()
+    if (title === '') continue
+    result.push({
+      title: title.slice(0, 300),
+      due: /^\d{4}-\d{2}-\d{2}/.test(String(value.due ?? '')) ? String(value.due).slice(0, 10) : '',
+      priority: Math.max(0, Math.min(9, Number(value.priority ?? 0) || 0)),
+      owner: String(value.owner ?? '').slice(0, 120),
+      notes: String(value.notes ?? '').slice(0, 1000),
+    })
+  }
+  return result.slice(0, 30)
 }
 
 /** Markdown-ish summary → simple blocks for the panel. */

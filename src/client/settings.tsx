@@ -17,6 +17,7 @@ export function MailSettings(): ReactNode {
   const [markOnOpen, setMarkOnOpen] = useState(true)
   const [pollSeconds, setPollSeconds] = useState(60)
   const [listLimit, setListLimit] = useState(40)
+  const [projectRoot, setProjectRoot] = useState('')
   const [aiEnabled, setAiEnabled] = useState(true)
   const [aiProvider, setAiProvider] = useState('deepseek-account')
   const [aiModel, setAiModel] = useState('deepseek-flash')
@@ -41,6 +42,7 @@ export function MailSettings(): ReactNode {
         setMarkOnOpen(view.read.markOnOpen)
         setPollSeconds(view.read.pollSeconds)
         setListLimit(view.render.listLimit)
+        setProjectRoot(view.projects.root)
         setAiEnabled(view.ai.enabled)
         setAiProvider(view.ai.provider)
         setAiModel(view.ai.model)
@@ -111,7 +113,7 @@ export function MailSettings(): ReactNode {
 
   return h(
     'div',
-    { className: 'mailharbor' },
+    { className: 'mailharbor mailharbor-settings-page' },
     h(
       'div',
       { className: 'mailharbor-settings' },
@@ -235,6 +237,34 @@ export function MailSettings(): ReactNode {
               onChange: (event: { target: { value: string } }) => setPollSeconds(Number(event.target.value)),
               onBlur: () => void saveGeneral({ read: { pollSeconds } }),
             }),
+          ),
+        ),
+      ),
+
+      h(
+        'div',
+        { className: 'mailharbor-card' },
+        h('h3', null, '项目'),
+        h('p', { className: 'small muted' }, '从邮件创建项目时的默认目录；单个项目可以在创建时改。'),
+        h(
+          'div',
+          { className: 'mailharbor-grid', style: { gridTemplateColumns: 'minmax(0, 1fr) auto' } },
+          h(
+            Field,
+            { label: '默认项目目录' },
+            h('input', {
+              value: projectRoot,
+              onChange: (event: { target: { value: string } }) => setProjectRoot(event.target.value),
+            }),
+          ),
+          h(
+            'button',
+            {
+              className: 'ghost small',
+              style: { alignSelf: 'end' },
+              onClick: () => void saveGeneral({ projects: { root: projectRoot } }),
+            },
+            '保存目录',
           ),
         ),
       ),
@@ -488,6 +518,31 @@ function AccountRow({
   const [fromName, setFromName] = useState(account.smtp.fromName)
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
+  const [caldavUrl, setCaldavUrl] = useState(account.caldav?.url ?? '')
+  const [caldavUser, setCaldavUser] = useState(account.caldav?.username ?? '')
+  const [caldavHref, setCaldavHref] = useState(account.caldav?.calendarHref ?? '')
+  const [caldavPassword, setCaldavPassword] = useState('')
+  const [caldavStatus, setCaldavStatus] = useState('')
+
+  useEffect(() => {
+    if (!editing) return
+    let cancelled = false
+    api
+      .taskCaldav(account.id)
+      .then((info) => {
+        if (cancelled) return
+        setCaldavUrl(info.caldav?.url ?? '')
+        setCaldavUser(info.caldav?.username ?? '')
+        setCaldavHref(info.caldav?.calendarHref ?? '')
+        setCaldavStatus(info.hasPassword ? '已保存应用密码' : '尚未保存应用密码')
+      })
+      .catch(() => {
+        if (!cancelled) setCaldavStatus('无法读取 CalDAV 配置')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [editing, account.id])
 
   useEffect(() => {
     setLabel(account.label)
@@ -657,6 +712,78 @@ function AccountRow({
             ),
           ),
           h('hr', { style: { border: 0, borderTop: '1px solid var(--m-line)', width: '100%' } }),
+          h('h4', { style: { margin: 0, fontSize: '12.5px' } }, 'CalDAV 任务同步'),
+          h(
+            'div',
+            { className: 'mailharbor-grid' },
+            h(
+              Field,
+              { label: 'CalDAV 地址' },
+              h('input', {
+                value: caldavUrl,
+                placeholder: 'https://caldav.example.com/',
+                onChange: (event: { target: { value: string } }) => setCaldavUrl(event.target.value),
+              }),
+            ),
+            h(
+              Field,
+              { label: '用户名' },
+              h('input', {
+                value: caldavUser,
+                onChange: (event: { target: { value: string } }) => setCaldavUser(event.target.value),
+              }),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'mailharbor-grid' },
+            h(
+              Field,
+              { label: '应用密码（留空表示不修改）' },
+              h('input', {
+                type: 'password',
+                value: caldavPassword,
+                onChange: (event: { target: { value: string } }) => setCaldavPassword(event.target.value),
+              }),
+            ),
+            h(
+              Field,
+              { label: '任务日历路径（可选）' },
+              h('input', {
+                value: caldavHref,
+                placeholder: '自动发现',
+                onChange: (event: { target: { value: string } }) => setCaldavHref(event.target.value),
+              }),
+            ),
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+            h(
+              'button',
+              {
+                className: 'ghost small',
+                onClick: () => {
+                  setCaldavStatus('保存中…')
+                  void api
+                    .saveTaskCaldav({
+                      accountId: account.id,
+                      url: caldavUrl,
+                      username: caldavUser,
+                      ...(caldavPassword === '' ? {} : { password: caldavPassword }),
+                      calendarHref: caldavHref,
+                    })
+                    .then((info) => {
+                      setCaldavStatus(info.hasPassword ? '已保存' : '未保存密码')
+                      setCaldavPassword('')
+                    })
+                    .catch((caught: unknown) => setCaldavStatus(errorText(caught)))
+                },
+              },
+              '保存 CalDAV',
+            ),
+            h('span', { className: 'small muted' }, caldavStatus),
+          ),
           h(
             Field,
             { label: '密码 / 应用专用密码（不写入配置文件）' },

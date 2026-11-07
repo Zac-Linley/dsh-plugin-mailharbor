@@ -49,6 +49,15 @@ const PATHS: Record<string, ReactNode> = {
     h('path', { d: 'M10 11v6M14 11v6' }),
   ),
   send: h('path', { d: 'm4 4 17 8-17 8 3.6-8z M7.6 12H21' }),
+  folder: h('path', {
+    d: 'M3.5 6.5A1.5 1.5 0 0 1 5 5h4l2 2.5h8A1.5 1.5 0 0 1 20.5 9v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z',
+  }),
+  checklist: h(
+    'g',
+    null,
+    h('path', { d: 'M4 6.5 5.5 8 8 5M4 12.5 5.5 14 8 11M4 18.5 5.5 20 8 17' }),
+    h('path', { d: 'M11 6.5h9M11 12.5h9M11 18.5h9' }),
+  ),
 }
 
 export function Icon({ name, size = 16 }: { name: keyof typeof PATHS | string; size?: number }): ReactNode {

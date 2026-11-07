@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Account, CalDavSettings, ImapSettings, NewAccountInput, SmtpSettings } from '../shared/types.js'
 import { CONFIG_PATH, DATA_ROOT, accountAttachmentsDir, accountDataDir, accountMailDb } from './paths.js'
@@ -21,6 +22,11 @@ export interface RenderSettings {
   listLimit: number
 }
 
+export interface ProjectSettings {
+  /** Default parent directory for projects created from mail. */
+  root: string
+}
+
 export interface OAuthSettings {
   google: { clientId: string; redirectPort: number; scopes: string[] }
   microsoft: { clientId: string; scopes: string[] }
@@ -36,6 +42,7 @@ export interface MailHarborConfig {
   ai: AiSettings
   read: ReadSettings
   render: RenderSettings
+  projects: ProjectSettings
   oauth: OAuthSettings
   /** Bumped whenever the file is written; caches key off this value. */
   revision: number
@@ -63,6 +70,7 @@ const DEFAULTS = {
   },
   read: { markOnOpen: true, pollSeconds: 60 },
   render: { listLimit: 40 },
+  projects: { root: join(homedir(), 'work', 'projects') },
   oauth: {
     google: { clientId: '', redirectPort: 8765, scopes: ['https://mail.google.com/'] },
     microsoft: {
@@ -205,6 +213,7 @@ export function loadConfig(): MailHarborConfig {
   const aiRaw = (file.ai ?? {}) as Record<string, unknown>
   const readRaw = (file.read ?? {}) as Record<string, unknown>
   const renderRaw = (file.render ?? {}) as Record<string, unknown>
+  const projectsRaw = (file.projects ?? {}) as Record<string, unknown>
   const oauthRaw = (file.oauth ?? {}) as Record<string, unknown>
   const googleRaw = (oauthRaw.google ?? {}) as Record<string, unknown>
   const microsoftRaw = (oauthRaw.microsoft ?? {}) as Record<string, unknown>
@@ -227,6 +236,9 @@ export function loadConfig(): MailHarborConfig {
     },
     render: {
       listLimit: intOr(renderRaw.listLimit, DEFAULTS.render.listLimit, 10, 200),
+    },
+    projects: {
+      root: stringOr(projectsRaw.root, DEFAULTS.projects.root),
     },
     oauth: {
       google: {

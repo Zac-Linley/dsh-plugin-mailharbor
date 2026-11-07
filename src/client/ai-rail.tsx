@@ -1,7 +1,9 @@
 import { createElement as h, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { Account, AiCard, AiThread, MessageDetail } from '../shared/types.js'
+import type { Account, AiCard, AiThread, MessageDetail, Project } from '../shared/types.js'
 import { api, ApiError } from './api.js'
+import { Modal } from './components.js'
 import { Icon } from './icons.js'
+import { Markdown } from './markdown.js'
 import type { AiReplyInit } from './reply.js'
 
 export interface AiRequest {
@@ -110,6 +112,12 @@ export function AiRail({
   const [error, setError] = useState('')
   const [question, setQuestion] = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
+  const [project, setProject] = useState<Project | null>(null)
+  const [projectOpen, setProjectOpen] = useState(false)
+  const [projectName, setProjectName] = useState('')
+  const [projectRoot, setProjectRoot] = useState('')
+  const [projectBusy, setProjectBusy] = useState(false)
+  const [projectWarnings, setProjectWarnings] = useState<string[]>([])
   const list = useRef<HTMLDivElement>(null)
   const lastNonce = useRef(0)
   const key = detail === null ? '' : threadKey(detail, source)
@@ -191,6 +199,88 @@ export function AiRail({
     const element = list.current
     if (element !== null) element.scrollTop = element.scrollHeight
   }, [thread, generating])
+
+  // Which project, if any, is this mail linked to?
+  useEffect(() => {
+    if (detail === null || account === null) {
+      setProject(null)
+      return
+    }
+    let cancelled = false
+    api
+      .projectFor(detail.accountId, key)
+      .then((result) => {
+        if (!cancelled) setProject(result.project)
+      })
+      .catch(() => {
+        if (!cancelled) setProject(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [detail, account, key, thread])
+
+  const openProject = async (): Promise<void> => {
+    setProjectOpen(true)
+    setProjectWarnings([])
+    try {
+      const settings = await api.settings()
+      setProjectRoot(settings.projects.root)
+      setProjectName(detail?.subject.replace(/^(re|fwd):\s*/i, '').slice(0, 80) ?? '')
+    } catch {
+      // The dialog still works with defaults.
+    }
+  }
+
+  const conversation = (): string =>
+    (thread?.cards ?? [])
+      .map(
+        (card) =>
+          `### ${KIND_LABEL[card.kind as Kind] ?? 'AI'} · ${new Date(card.createdAt).toLocaleString()}\n\n${card.output}`,
+      )
+      .join('\n\n')
+
+  const transfer = async (): Promise<void> => {
+    if (project === null || detail === null || account === null) return
+    setProjectBusy(true)
+    setProjectWarnings([])
+    try {
+      await api.transferProject(project.id, {
+        accountId: account.id,
+        key,
+        conversation: conversation() === '' ? '（暂无新的 AI 记录）' : conversation(),
+      })
+      onNotice('已追加到项目对话')
+      setProjectOpen(false)
+    } catch (caught) {
+      setProjectWarnings([errorText(caught)])
+    } finally {
+      setProjectBusy(false)
+    }
+  }
+
+  const create = async (): Promise<void> => {
+    if (detail === null || account === null) return
+    setProjectBusy(true)
+    setProjectWarnings([])
+    try {
+      const result = await api.createProject({
+        accountId: account.id,
+        name: projectName.trim() === '' ? detail.subject : projectName.trim(),
+        root: projectRoot,
+        conversation: conversation() === '' ? '（还没有 AI 记录）' : conversation(),
+        message: { key, subject: detail.subject, date: detail.date },
+      })
+      setProject(result.project)
+      setProjectWarnings(result.warnings)
+      onNotice(`项目已创建：${result.project.path}`)
+      if (result.warnings.length === 0) setProjectOpen(false)
+    } catch (caught) {
+      setProjectWarnings([errorText(caught)])
+    } finally {
+      setProjectBusy(false)
+    }
+  }
 
   const replyInit = (card: AiCard): AiReplyInit => {
     const subject =
@@ -291,7 +381,11 @@ export function AiRail({
           { className: 'mailharbor-ai-context' },
           h('span', { className: 'small' }, '跟随当前邮件'),
           h('strong', null, detail.subject),
-          h('span', { className: 'small muted' }, 'AI 只看到这封邮件'),
+          h(
+            'span',
+            { className: 'small muted' },
+            project === null ? 'AI 只看到这封邮件' : `项目：${project.name}`,
+          ),
         ),
     disabled && detail !== null
       ? h('div', { className: 'mailharbor-ai-warn' }, status?.error ?? 'AI 已关闭，请到设置里开启')
@@ -327,6 +421,12 @@ export function AiRail({
               onClick: () => void generate('translate', { target: 'en' }),
             },
             generating === 'translate' ? '翻译中…' : '翻译',
+          ),
+          h(
+            'button',
+            { className: 'ghost', onClick: () => void openProject() },
+            h(Icon, { name: 'folder', size: 13 }),
+            '项目',
           ),
         ),
     h(
@@ -374,11 +474,11 @@ export function AiRail({
                     'section',
                     { key: `${block.title}:${String(index)}` },
                     block.title === '' ? null : h('h4', null, block.title),
-                    h('p', null, block.body),
+                    h(Markdown, { text: block.body }),
                   ),
                 ),
               )
-            : h('div', { className: 'mailharbor-ai-text' }, card.output),
+            : h('div', { className: 'mailharbor-ai-text' }, h(Markdown, { text: card.output })),
           h(
             'div',
             { className: 'mailharbor-ai-card-actions' },
@@ -428,6 +528,91 @@ export function AiRail({
         : null,
       error === '' ? null : h('div', { className: 'mailharbor-ai-error' }, error),
     ),
+    projectOpen
+      ? h(
+          Modal,
+          {
+            title: project === null ? '转到项目' : `项目：${project.name}`,
+            onClose: () => setProjectOpen(false),
+            footer: h(
+              'div',
+              { style: { display: 'flex', gap: '8px', width: '100%', alignItems: 'center' } },
+              projectWarnings.length === 0
+                ? h(
+                    'span',
+                    { className: 'small muted' },
+                    project === null ? '把当前 AI 记录带进一个新工作空间' : '把当前 AI 记录追加到项目对话',
+                  )
+                : h(
+                    'span',
+                    { className: 'small', style: { color: 'var(--m-warn)' } },
+                    projectWarnings.join('；'),
+                  ),
+              h('span', { className: 'spacer' }),
+              h('button', { className: 'ghost', onClick: () => setProjectOpen(false) }, '关闭'),
+              project === null
+                ? h(
+                    'button',
+                    { className: 'primary', disabled: projectBusy, onClick: () => void create() },
+                    projectBusy ? '创建中…' : '创建项目',
+                  )
+                : h(
+                    'button',
+                    { className: 'primary', disabled: projectBusy, onClick: () => void transfer() },
+                    projectBusy ? '追加中…' : '追加当前记录',
+                  ),
+            ),
+          },
+          project === null
+            ? h(
+                'div',
+                { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+                h(
+                  'div',
+                  { className: 'mailharbor-field' },
+                  h('label', null, '项目名称'),
+                  h('input', {
+                    value: projectName,
+                    onChange: (event: { target: { value: string } }) => setProjectName(event.target.value),
+                  }),
+                ),
+                h(
+                  'div',
+                  { className: 'mailharbor-field' },
+                  h('label', null, '项目目录（默认可在设置里改）'),
+                  h('input', {
+                    value: projectRoot,
+                    onChange: (event: { target: { value: string } }) => setProjectRoot(event.target.value),
+                  }),
+                ),
+                h(
+                  'p',
+                  { className: 'small muted' },
+                  `会创建「${projectName.trim() === '' ? '项目' : projectName.trim()}」文件夹，写入 BRIEF.md 和当前 ${String(thread?.cards.length ?? 0)} 条 AI 记录，并在侧栏注册工作空间、开一个会话。`,
+                ),
+              )
+            : h(
+                'div',
+                { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+                h(
+                  'dl',
+                  { className: 'mailharbor-kv' },
+                  h('dt', null, '目录'),
+                  h('dd', null, project.path),
+                  h('dt', null, 'AI 记录'),
+                  h('dd', null, `${String(thread?.cards.length ?? 0)} 条`),
+                ),
+                project.sessionId === ''
+                  ? h('p', { className: 'small muted' }, '会话未创建：当前组合没有 sessions 服务。')
+                  : null,
+                h(
+                  'p',
+                  { className: 'small muted' },
+                  '「追加当前记录」会把工作台里的卡片写入项目的 CONVERSATION.md。',
+                ),
+              ),
+        )
+      : null,
     detail === null
       ? null
       : h(

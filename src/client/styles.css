@@ -222,6 +222,7 @@
   height: 52px;
   padding: 0 14px;
   border-bottom: 1px solid var(--m-line-soft);
+  background: var(--m-bg);
   flex: none;
 }
 
@@ -909,6 +910,14 @@
   min-width: 0;
 }
 
+.mailharbor-field > input,
+.mailharbor-field > select,
+.mailharbor-field > textarea,
+.mailharbor-card > textarea {
+  width: 100%;
+  min-width: 0;
+}
+
 .mailharbor-field > label {
   font-size: 11.5px;
   color: var(--m-text-3);
@@ -916,13 +925,15 @@
 
 .mailharbor-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
+  min-width: 0;
 }
 
 .mailharbor-grid.three {
-  grid-template-columns: 2fr 90px auto;
+  grid-template-columns: minmax(0, 2fr) minmax(72px, 90px) auto;
   align-items: end;
+  min-width: 0;
 }
 
 .mailharbor-toggle {
@@ -1001,6 +1012,329 @@
   font-size: 12.5px;
 }
 
+/* ---------- selection / extraction ---------- */
+
+.mailharbor-selectbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 0 12px 8px;
+  border: 1px solid var(--m-accent-soft);
+  border-radius: 9px;
+  background: var(--m-accent-soft);
+}
+
+.mailharbor-selectbar select {
+  height: 28px;
+  max-width: 200px;
+}
+
+.mailharbor-row.selectable input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  accent-color: var(--m-accent);
+}
+
+.mailharbor-extract-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--m-line-soft);
+  border-radius: 9px;
+  background: var(--m-bg-1);
+  cursor: pointer;
+}
+
+.mailharbor-extract-row input {
+  margin-top: 2px;
+  accent-color: var(--m-accent);
+}
+
+.mailharbor-extract-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mailharbor-kv {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.mailharbor-kv dt {
+  color: var(--m-text-3);
+}
+
+.mailharbor-kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- tasks panel ---------- */
+
+.mailharbor .chip {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--m-line);
+  border-radius: 999px;
+  color: var(--m-text-3);
+  font-size: 12px;
+}
+
+.mailharbor .chip.active {
+  background: var(--m-accent-soft);
+  border-color: transparent;
+  color: var(--m-text);
+}
+
+.tasks-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px 20px 48px;
+  width: 100%;
+  max-width: 940px;
+  margin: 0 auto;
+}
+
+.tasks-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.tasks-progress,
+.tasks-project {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 14px;
+  border: 1px solid var(--m-line-soft);
+  border-radius: 12px;
+  background: var(--m-bg-1);
+  min-width: 0;
+}
+
+.tasks-progress-head,
+.tasks-project-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tasks-project-head .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.tasks-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--m-bg-3);
+  overflow: hidden;
+}
+
+.tasks-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--m-accent);
+  transition: width 200ms ease;
+}
+
+.tasks-bar.small {
+  height: 4px;
+}
+
+.tasks-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tasks-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--m-line-soft);
+  border-radius: 10px;
+  background: var(--m-bg-1);
+}
+
+.tasks-row input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  accent-color: var(--m-accent);
+}
+
+.tasks-row .tasks-title {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+}
+
+.tasks-row .tasks-title:hover {
+  background: transparent;
+}
+
+.tasks-row .tasks-title > span:first-child {
+  font-size: 13px;
+  color: var(--m-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.tasks-row.done .tasks-title > span:first-child {
+  color: var(--m-text-3);
+  text-decoration: line-through;
+}
+
+.tasks-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--m-text-3);
+}
+
+.tasks-meta .due.overdue {
+  color: var(--m-danger);
+}
+
+.tasks-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---------- markdown ---------- */
+
+.mailharbor-markdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.68;
+  overflow-wrap: anywhere;
+}
+
+.mailharbor-markdown > *:first-child {
+  margin-top: 0;
+}
+
+.mailharbor-markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.mailharbor-markdown p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.mailharbor-markdown h1,
+.mailharbor-markdown h2,
+.mailharbor-markdown h3,
+.mailharbor-markdown h4,
+.mailharbor-markdown h5,
+.mailharbor-markdown h6 {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m-text);
+}
+
+.mailharbor-markdown ul,
+.mailharbor-markdown ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mailharbor-markdown li::marker {
+  color: var(--m-text-3);
+}
+
+.mailharbor-markdown a {
+  color: var(--m-accent);
+  text-decoration: none;
+}
+
+.mailharbor-markdown a:hover {
+  text-decoration: underline;
+}
+
+.mailharbor-markdown code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--m-bg-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.mailharbor-markdown pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--m-bg);
+  border: 1px solid var(--m-line-soft);
+  overflow: auto;
+}
+
+.mailharbor-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.mailharbor-markdown blockquote {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--m-line);
+  color: var(--m-text-2);
+}
+
+.mailharbor-markdown hr {
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--m-line-soft);
+}
+
 /* ---------- composer AI ---------- */
 
 .mailharbor-toolbar button.ai {
@@ -1040,12 +1374,26 @@
 
 /* ---------- settings ---------- */
 
+.mailharbor.mailharbor-settings-page {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
 .mailharbor-settings {
-  padding: 20px 24px 48px;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 18px 20px 48px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 880px;
+  overflow-x: hidden;
+}
+
+.mailharbor-settings > * {
+  min-width: 0;
 }
 
 .mailharbor-settings h2 {
@@ -1072,6 +1420,8 @@
   border: 1px solid var(--m-line-soft);
   border-radius: 12px;
   background: var(--m-bg-1);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .mailharbor-account-row {

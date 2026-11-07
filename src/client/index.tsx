@@ -2,6 +2,7 @@ import styles from './styles.css'
 import { MailIcon } from './icon.js'
 import { MailPanel } from './panel.js'
 import { MailSettings } from './settings.js'
+import { TasksIcon, TasksPanel } from './tasks-panel.js'
 import type { ClientContext } from './dsh.js'
 
 /** Keep in sync with package.json (`npm run version` does this). */
@@ -11,6 +12,7 @@ export const VERSION = '0.4.1'
 export const inject = ['slots']
 
 const PANEL_ID = 'mailharbor'
+const TASKS_PANEL_ID = 'mailharbor-tasks'
 const STYLE_ID = 'mailharbor-style'
 
 function ensureStyles(): void {
@@ -50,6 +52,18 @@ export function apply(ctx: ClientContext): void {
       MailIcon,
     ),
   )
+  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: TASKS_PANEL_ID }, TasksPanel))
+  ctx.slots.inject('sidebar.panellist', () =>
+    ctx.slots.register(
+      {
+        name: 'sidebar.panellist',
+        id: TASKS_PANEL_ID,
+        order: 21,
+        label: '任务',
+      },
+      TasksIcon,
+    ),
+  )
 }
 
-export { PANEL_ID }
+export { PANEL_ID, TASKS_PANEL_ID }

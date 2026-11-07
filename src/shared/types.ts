@@ -164,20 +164,6 @@ export interface SendResult {
   rejected: string[]
 }
 
-export interface Task {
-  id: string
-  accountId: string
-  uid: string
-  summary: string
-  notes: string
-  due: string | null
-  status: 'needs-action' | 'in-process' | 'completed' | 'cancelled'
-  priority: number
-  /** Local edits not yet pushed to CalDAV. */
-  dirty: boolean
-  updatedAt: string
-}
-
 export interface BackupStatus {
   running: boolean
   accountId: string | null
@@ -209,6 +195,9 @@ export interface SettingsView {
   }
   render: {
     listLimit: number
+  }
+  projects: {
+    root: string
   }
 }
 
@@ -262,6 +251,52 @@ export interface AiThread {
   messageId?: string
   cards: AiCard[]
   updatedAt: string
+}
+
+export interface Task {
+  id: string
+  accountId: string
+  projectId: string | null
+  title: string
+  notes: string
+  due: string
+  status: 'NEEDS-ACTION' | 'IN-PROCESS' | 'COMPLETED' | 'CANCELLED'
+  priority: number
+  owner: string
+  messageKey: string
+  messageSubject: string
+  dirty: boolean
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+}
+
+export interface ProjectMessageLink {
+  accountId: string
+  key: string
+  subject: string
+  date: string
+}
+
+export interface Project {
+  id: string
+  name: string
+  path: string
+  workspaceId: string
+  sessionId: string
+  accountIds: string[]
+  messages: ProjectMessageLink[]
+  threads: { accountId: string; key: string }[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TaskSuggestion {
+  title: string
+  due: string
+  priority: number
+  owner: string
+  notes: string
 }
 
 export interface ApiError {

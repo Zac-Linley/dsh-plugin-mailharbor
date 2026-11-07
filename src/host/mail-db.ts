@@ -283,6 +283,15 @@ export class MailDatabase {
     }
   }
 
+  /** Locate a local row by Message-ID, for links from tasks and projects. */
+  findByMessageId(messageId: string): { id: number; mailbox: string } | undefined {
+    const id = messageId.trim().replace(/^<|>$/g, '')
+    if (id === '') return undefined
+    const row = this.open().prepare('SELECT id, mailbox FROM emails WHERE message_id = ? LIMIT 1').get(id)
+    if (row === undefined) return undefined
+    return { id: Number(row.id), mailbox: String(row.mailbox ?? '') }
+  }
+
   /** Whether the backup already holds a message with this Message-ID. */
   hasMessageId(messageId: string): boolean {
     const id = messageId.trim().replace(/^<|>$/g, '')
