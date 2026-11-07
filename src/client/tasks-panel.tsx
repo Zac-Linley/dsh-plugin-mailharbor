@@ -1,27 +1,26 @@
-import { createElement as h, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createElement as h, useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { AppState, Project, Task } from '../shared/types.js'
 import { api, ApiError } from './api.js'
 import { ErrorBar, Modal } from './components.js'
 import { Icon } from './icons.js'
 import { requestOpenMail } from './nav.js'
 
-type Filter = 'open' | 'today' | 'week' | 'overdue' | 'done' | 'all'
+type Filter = 'all' | 'today' | 'week' | 'overdue'
 
 const FILTERS: { id: Filter; label: string }[] = [
-  { id: 'open', label: '待办' },
+  { id: 'all', label: '全部' },
   { id: 'today', label: '今天' },
   { id: 'week', label: '本周' },
   { id: 'overdue', label: '逾期' },
-  { id: 'done', label: '已完成' },
-  { id: 'all', label: '全部' },
 ]
 
-const STATUS_LABEL: Record<string, string> = {
-  'NEEDS-ACTION': '待处理',
-  'IN-PROCESS': '进行中',
-  COMPLETED: '已完成',
-  CANCELLED: '已取消',
-}
+const COLUMNS: { status: Task['status']; label: string; hint: string }[] = [
+  { status: 'NEEDS-ACTION', label: '待处理', hint: '还没开始' },
+  { status: 'IN-PROCESS', label: '进行中', hint: '正在做' },
+  { status: 'COMPLETED', label: '已完成', hint: '收尾' },
+]
+
+const PRIORITY_LABEL: Record<number, string> = { 0: '无', 5: '中', 9: '高' }
 
 function errorText(error: unknown): string {
   return error instanceof ApiError || error instanceof Error ? error.message : String(error)
@@ -41,17 +40,19 @@ function weekEnd(): string {
 
 function dueText(due: string): string {
   if (due === '') return ''
+  const value = due.slice(0, 10)
   const today = dateKey(new Date())
-  if (due.slice(0, 10) < today) return `逾期 ${due.slice(0, 10)}`
-  return due.slice(0, 10)
+  if (value < today) return `逾期 ${value}`
+  if (value === today) return '今天'
+  return value
 }
 
-const EMPTY_TASK = {
+const EMPTY = {
   title: '',
   notes: '',
   due: '',
   priority: 0,
-  status: 'NEEDS-ACTION',
+  status: 'NEEDS-ACTION' as Task['status'],
   owner: '',
   projectId: '',
 }
@@ -67,9 +68,7 @@ export function TasksIcon(): ReactNode {
         if (accountId === null) return
         const result = await api.tasks(accountId)
         if (!cancelled) {
-          setCount(
-            result.items.filter((task) => task.status !== 'COMPLETED' && task.status !== 'CANCELLED').length,
-          )
+          setCount(result.items.filter((task) => task.status !== 'COMPLETED').length)
         }
       } catch {
         // A logged-out profile simply shows no badge.
@@ -133,13 +132,13 @@ export function TasksPanel(): ReactNode {
   const [state, setState] = useState<AppState | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [projects, setProjects] = useState<Project[]>([])
-  const [calendar, setCalendar] = useState<{ lastSync: string; error: string } | null>(null)
-  const [filter, setFilter] = useState<Filter>('open')
+  const [filter, setFilter] = useState<Filter>('all')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState<Task['status'] | null>(null)
+  const [dragging, setDragging] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
 
   const accountId = state?.settings.activeAccountId ?? null
@@ -158,7 +157,6 @@ export function TasksPanel(): ReactNode {
       .then(([list, projectList]) => {
         if (cancelled) return
         setTasks(list.items)
-        setCalendar(list.calendar)
         setProjects(projectList.items)
       })
       .catch((caught: unknown) => {
@@ -180,40 +178,22 @@ export function TasksPanel(): ReactNode {
     }, 3000)
   }
 
-  const visible = useMemo(() => {
-    const today = dateKey(new Date())
-    const end = weekEnd()
-    return tasks.filter((task) => {
-      const done = task.status === 'COMPLETED' || task.status === 'CANCELLED'
-      if (filter === 'done') return done
-      if (done) return false
-      if (filter === 'all') return true
+  const matchesFilter = useCallback(
+    (task: Task): boolean => {
+      const today = dateKey(new Date())
+      const end = weekEnd()
       if (filter === 'overdue') return task.due !== '' && task.due.slice(0, 10) < today
       if (filter === 'today') return task.due.slice(0, 10) === today
       if (filter === 'week') return task.due !== '' && task.due.slice(0, 10) <= end
       return true
-    })
-  }, [tasks, filter])
+    },
+    [filter],
+  )
 
-  const open = tasks.filter((task) => task.status !== 'COMPLETED' && task.status !== 'CANCELLED')
-  const done = tasks.length - open.length
-  const progress = tasks.length === 0 ? 0 : Math.round((done / tasks.length) * 100)
-
-  const byProject = useMemo(() => {
-    const groups = new Map<string, { project: Project | null; total: number; done: number }>()
-    for (const task of tasks) {
-      const key = task.projectId ?? ''
-      const group = groups.get(key) ?? {
-        project: projects.find((project) => project.id === key) ?? null,
-        total: 0,
-        done: 0,
-      }
-      group.total += 1
-      if (task.status === 'COMPLETED' || task.status === 'CANCELLED') group.done += 1
-      groups.set(key, group)
-    }
-    return [...groups.values()].filter((group) => group.project !== null)
-  }, [tasks, projects])
+  const open = tasks.filter((task) => task.status !== 'COMPLETED')
+  const doneCount = tasks.length - open.length
+  const progress = tasks.length === 0 ? 0 : Math.round((doneCount / tasks.length) * 100)
+  const overdue = open.filter((task) => task.due !== '' && task.due.slice(0, 10) < dateKey(new Date())).length
 
   const switchAccount = async (id: string): Promise<void> => {
     try {
@@ -224,10 +204,10 @@ export function TasksPanel(): ReactNode {
     }
   }
 
-  const toggle = async (task: Task): Promise<void> => {
+  const move = async (task: Task, status: Task['status']): Promise<void> => {
+    if (task.status === status) return
     try {
-      const next = task.status === 'COMPLETED' ? 'NEEDS-ACTION' : 'COMPLETED'
-      const { task: updated } = await api.updateTask(task.id, { status: next })
+      const { task: updated } = await api.updateTask(task.id, { status })
       setTasks((current) => current.map((item) => (item.id === task.id ? updated : item)))
     } catch (caught) {
       setError(errorText(caught))
@@ -238,6 +218,7 @@ export function TasksPanel(): ReactNode {
     try {
       await api.deleteTask(task.id)
       setTasks((current) => current.filter((item) => item.id !== task.id))
+      notify('任务已删除')
     } catch (caught) {
       setError(errorText(caught))
     }
@@ -248,29 +229,14 @@ export function TasksPanel(): ReactNode {
     try {
       const found = await api.lookupMessage(task.accountId, task.messageKey)
       requestOpenMail({ accountId: task.accountId, id: found.id, mailbox: found.mailbox })
-      // Best effort: switch to the mail panel; the pending request opens the mail.
       document.querySelector<HTMLElement>('button[aria-label="MailHarbor"]')?.click()
     } catch (caught) {
       setError(errorText(caught))
     }
   }
 
-  const sync = async (): Promise<void> => {
+  const save = async (draft: typeof EMPTY & { id?: string }): Promise<void> => {
     if (accountId === null) return
-    setBusy(true)
-    setError('')
-    try {
-      const result = await api.syncTasks(accountId)
-      notify(`已同步：拉取 ${String(result.result.pulled)}，推送 ${String(result.result.pushed)}`)
-      refresh()
-    } catch (caught) {
-      setError(errorText(caught))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const save = async (draft: typeof EMPTY_TASK & { id?: string }): Promise<void> => {
     setBusy(true)
     setError('')
     try {
@@ -297,7 +263,8 @@ export function TasksPanel(): ReactNode {
         })
       }
       setEditing(null)
-      setCreating(false)
+      setCreating(null)
+      notify('任务已保存')
       refresh()
     } catch (caught) {
       setError(errorText(caught))
@@ -308,7 +275,7 @@ export function TasksPanel(): ReactNode {
 
   return h(
     'div',
-    { className: 'mailharbor' },
+    { className: 'mailharbor mailharbor-tasks' },
     h(
       'div',
       { className: 'mailharbor-topbar' },
@@ -328,76 +295,64 @@ export function TasksPanel(): ReactNode {
             ),
           ),
       h('span', { className: 'spacer' }),
-      calendar === null
-        ? null
-        : h(
-            'span',
-            { className: 'small muted' },
-            calendar.lastSync === '' ? '未同步' : `同步于 ${new Date(calendar.lastSync).toLocaleString()}`,
-          ),
       h(
         'button',
-        { className: 'ghost', onClick: () => void sync(), disabled: busy },
-        busy ? '同步中…' : '同步 CalDAV',
-      ),
-      h(
-        'button',
-        { className: 'primary', onClick: () => setCreating(true) },
+        { className: 'primary', onClick: () => setCreating('NEEDS-ACTION') },
         h(Icon, { name: 'plus' }),
         '新建任务',
       ),
     ),
     toast === ''
       ? null
-      : h('div', { className: 'small', style: { padding: '6px 14px', color: 'var(--m-ok)' } }, toast),
+      : h('div', { className: 'small', style: { padding: '6px 18px', color: 'var(--m-ok)' } }, toast),
     error === '' ? null : h(ErrorBar, { message: error, onDismiss: () => setError('') }),
     h(
       'div',
-      { className: 'tasks-body' },
+      { className: 'tasks-board-wrap' },
       h(
         'div',
-        { className: 'tasks-overview' },
+        { className: 'tasks-summary' },
         h(
           'div',
-          { className: 'tasks-progress' },
+          { className: 'tasks-summary-main' },
           h(
             'div',
-            { className: 'tasks-progress-head' },
+            { className: 'tasks-summary-labels' },
             h('strong', null, '总体进度'),
             h(
               'span',
               { className: 'muted small' },
-              `${String(done)} / ${String(tasks.length)} · ${String(progress)}%`,
+              `${String(doneCount)} / ${String(tasks.length)} · ${String(progress)}%`,
             ),
           ),
           h('div', { className: 'tasks-bar' }, h('span', { style: { width: `${String(progress)}%` } })),
-          h('div', { className: 'small muted' }, `待办 ${String(open.length)} 条`),
         ),
-        ...byProject.map((group) =>
+        h(
+          'div',
+          { className: 'tasks-stats' },
           h(
-            'div',
-            { key: group.project?.id ?? 'none', className: 'tasks-project' },
-            h(
-              'div',
-              { className: 'tasks-project-head' },
-              h('span', { className: 'name' }, group.project?.name ?? ''),
-              h('span', { className: 'muted small' }, `${String(group.done)}/${String(group.total)}`),
-            ),
-            h(
-              'div',
-              { className: 'tasks-bar small' },
-              h('span', {
-                style: {
-                  width: `${String(group.total === 0 ? 0 : Math.round((group.done / group.total) * 100))}%`,
-                },
-              }),
-            ),
+            'span',
+            { className: 'tasks-stat' },
+            h('strong', null, String(open.length)),
+            h('span', null, '待办'),
+          ),
+          h(
+            'span',
+            { className: overdue > 0 ? 'tasks-stat danger' : 'tasks-stat' },
+            h('strong', null, String(overdue)),
+            h('span', null, '逾期'),
+          ),
+          h(
+            'span',
+            { className: 'tasks-stat' },
+            h('strong', null, String(projects.length)),
+            h('span', null, '项目'),
           ),
         ),
       ),
       h(
         'div',
-        { className: 'tasks-list-wrap' },
+        { className: 'tasks-toolbar' },
         h(
           'div',
           { className: 'tasks-filters' },
@@ -413,82 +368,142 @@ export function TasksPanel(): ReactNode {
             ),
           ),
         ),
-        visible.length === 0
-          ? h(
+        h('span', { className: 'spacer' }),
+        h('span', { className: 'small muted' }, '拖动卡片可改变状态'),
+      ),
+      h(
+        'div',
+        { className: 'tasks-board' },
+        COLUMNS.map((column) => {
+          const cards = tasks.filter((task) => task.status === column.status).filter(matchesFilter)
+          return h(
+            'div',
+            {
+              key: column.status,
+              className: `task-column task-column-${column.status}`,
+              onDragOver: (event: { preventDefault: () => void }) => {
+                event.preventDefault()
+              },
+              onDrop: (event: { preventDefault: () => void }) => {
+                event.preventDefault()
+                const task = tasks.find((item) => item.id === dragging)
+                if (task !== undefined) void move(task, column.status)
+                setDragging(null)
+              },
+            },
+            h(
               'div',
-              { className: 'mailharbor-empty' },
-              h(Icon, { name: 'checklist', size: 28 }),
-              h('div', { className: 'title' }, '没有任务'),
-              h('div', { className: 'small' }, '可以在这里新建，或在邮件里用「提取任务」。'),
-            )
-          : h(
+              { className: 'task-column-head' },
+              h('span', { className: `task-dot ${column.status}` }),
+              h('strong', null, column.label),
+              h('span', { className: 'task-column-count' }, String(cards.length)),
+              h('span', { className: 'spacer' }),
+              h(
+                'button',
+                {
+                  className: 'subtle icon',
+                  title: `在「${column.label}」中新建`,
+                  onClick: () => setCreating(column.status),
+                },
+                h(Icon, { name: 'plus', size: 14 }),
+              ),
+            ),
+            h(
               'div',
-              { className: 'tasks-list' },
-              visible.map((task) =>
-                h(
-                  'div',
-                  { key: task.id, className: `tasks-row${task.status === 'COMPLETED' ? ' done' : ''}` },
-                  h('input', {
-                    type: 'checkbox',
-                    checked: task.status === 'COMPLETED',
-                    'aria-label': '完成任务',
-                    onChange: () => void toggle(task),
-                  }),
-                  h(
-                    'button',
-                    { className: 'tasks-title', onClick: () => setEditing(task) },
-                    h('span', null, task.title),
+              { className: 'task-column-body' },
+              cards.length === 0
+                ? h('div', { className: 'task-column-empty' }, column.hint)
+                : cards.map((task) =>
                     h(
-                      'span',
-                      { className: 'tasks-meta' },
-                      task.due === ''
-                        ? null
-                        : h(
-                            'span',
-                            {
-                              className: task.due.slice(0, 10) < dateKey(new Date()) ? 'due overdue' : 'due',
+                      'article',
+                      {
+                        key: task.id,
+                        className: `task-card${dragging === task.id ? ' dragging' : ''}`,
+                        draggable: true,
+                        onDragStart: () => setDragging(task.id),
+                        onDragEnd: () => setDragging(null),
+                        onClick: () => setEditing(task),
+                      },
+                      h(
+                        'div',
+                        { className: 'task-card-top' },
+                        h('span', { className: `task-priority p${String(task.priority)}` }),
+                        h('span', { className: 'task-card-title' }, task.title),
+                        h(
+                          'button',
+                          {
+                            className: 'task-card-delete',
+                            title: '删除任务',
+                            onClick: (event: { stopPropagation: () => void }) => {
+                              event.stopPropagation()
+                              void remove(task)
                             },
-                            dueText(task.due),
-                          ),
-                      task.owner === '' ? null : h('span', null, task.owner),
-                      h('span', { className: 'badge' }, STATUS_LABEL[task.status] ?? task.status),
-                      task.projectId === null
+                          },
+                          h(Icon, { name: 'close', size: 12 }),
+                        ),
+                      ),
+                      task.notes === '' ? null : h('p', { className: 'task-card-notes' }, task.notes),
+                      h(
+                        'div',
+                        { className: 'task-card-meta' },
+                        task.due === ''
+                          ? null
+                          : h(
+                              'span',
+                              {
+                                className:
+                                  task.due.slice(0, 10) < dateKey(new Date()) && task.status !== 'COMPLETED'
+                                    ? 'task-due overdue'
+                                    : 'task-due',
+                              },
+                              h(Icon, { name: 'calendar', size: 12 }),
+                              dueText(task.due),
+                            ),
+                        task.owner === '' ? null : h('span', { className: 'task-owner' }, task.owner),
+                        task.projectId === null
+                          ? null
+                          : h(
+                              'span',
+                              { className: 'task-project' },
+                              projects.find((project) => project.id === task.projectId)?.name ?? '项目',
+                            ),
+                        task.priority > 0
+                          ? h(
+                              'span',
+                              { className: 'task-priority-label' },
+                              `优先级 ${PRIORITY_LABEL[task.priority] ?? String(task.priority)}`,
+                            )
+                          : null,
+                      ),
+                      task.messageKey === ''
                         ? null
                         : h(
-                            'span',
-                            { className: 'badge' },
-                            projects.find((project) => project.id === task.projectId)?.name ?? '项目',
+                            'button',
+                            {
+                              className: 'task-source',
+                              onClick: (event: { stopPropagation: () => void }) => {
+                                event.stopPropagation()
+                                void openSource(task)
+                              },
+                            },
+                            h(Icon, { name: 'mail', size: 12 }),
+                            '来源邮件',
                           ),
                     ),
                   ),
-                  task.messageKey === ''
-                    ? null
-                    : h(
-                        'button',
-                        {
-                          className: 'subtle small',
-                          title: '打开来源邮件',
-                          onClick: () => void openSource(task),
-                        },
-                        '来源',
-                      ),
-                  h(
-                    'button',
-                    { className: 'subtle icon', title: '删除', onClick: () => void remove(task) },
-                    h(Icon, { name: 'trash', size: 13 }),
-                  ),
-                ),
-              ),
             ),
+          )
+        }),
       ),
     ),
-    creating || editing !== null
+    creating !== null || editing !== null
       ? h(TaskEditor, {
           task: editing,
+          status: creating ?? 'NEEDS-ACTION',
           projects,
           busy,
           onClose: () => {
-            setCreating(false)
+            setCreating(null)
             setEditing(null)
           },
           onSave: (draft) => void save(draft),
@@ -499,19 +514,22 @@ export function TasksPanel(): ReactNode {
 
 function TaskEditor({
   task,
+  status,
   projects,
   busy,
   onClose,
   onSave,
 }: {
   task: Task | null
+  status: Task['status']
   projects: Project[]
   busy: boolean
   onClose: () => void
-  onSave: (draft: typeof EMPTY_TASK & { id?: string }) => void
+  onSave: (draft: typeof EMPTY & { id?: string }) => void
 }): ReactNode {
   const [draft, setDraft] = useState({
-    ...EMPTY_TASK,
+    ...EMPTY,
+    status,
     ...(task === null
       ? {}
       : {
@@ -532,105 +550,138 @@ function TaskEditor({
     {
       title: task === null ? '新建任务' : '编辑任务',
       onClose,
+      wide: true,
       footer: h(
         'div',
-        { style: { display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end' } },
+        { className: 'task-editor-foot' },
+        h('span', { className: 'small muted' }, '提示：任务会保存在本地，可在看板中拖动改变状态。'),
+        h('span', { className: 'spacer' }),
         h('button', { className: 'ghost', onClick: onClose }, '取消'),
         h(
           'button',
-          { className: 'primary', disabled: busy || draft.title.trim() === '', onClick: () => onSave(draft) },
-          busy ? '保存中…' : '保存',
+          {
+            className: 'primary',
+            disabled: busy || draft.title.trim() === '',
+            onClick: () => onSave(draft),
+          },
+          busy ? '保存中…' : '保存任务',
         ),
       ),
     },
     h(
       'div',
-      { className: 'mailharbor-field' },
-      h('label', null, '标题'),
-      h('input', {
-        value: draft.title,
-        autoFocus: true,
-        onChange: (event: { target: { value: string } }) => set({ title: event.target.value }),
-      }),
-    ),
-    h(
-      'div',
-      { className: 'mailharbor-field' },
-      h('label', null, '备注'),
-      h('textarea', {
-        rows: 3,
-        value: draft.notes,
-        onChange: (event: { target: { value: string } }) => set({ notes: event.target.value }),
-      }),
-    ),
-    h(
-      'div',
-      { className: 'mailharbor-grid' },
+      { className: 'task-editor' },
       h(
         'div',
-        { className: 'mailharbor-field' },
-        h('label', null, '截止日期'),
-        h('input', {
-          type: 'date',
-          value: draft.due,
-          onChange: (event: { target: { value: string } }) => set({ due: event.target.value }),
-        }),
-      ),
-      h(
-        'div',
-        { className: 'mailharbor-field' },
-        h('label', null, '优先级'),
+        { className: 'task-editor-main' },
         h(
-          'select',
-          {
-            value: String(draft.priority),
-            onChange: (event: { target: { value: string } }) => set({ priority: Number(event.target.value) }),
-          },
-          h('option', { value: '0' }, '无'),
-          h('option', { value: '5' }, '中'),
-          h('option', { value: '9' }, '高'),
+          'div',
+          { className: 'task-editor-title' },
+          h('input', {
+            value: draft.title,
+            autoFocus: true,
+            placeholder: '要做什么？',
+            onChange: (event: { target: { value: string } }) => set({ title: event.target.value }),
+          }),
         ),
-      ),
-    ),
-    h(
-      'div',
-      { className: 'mailharbor-grid' },
-      h(
-        'div',
-        { className: 'mailharbor-field' },
-        h('label', null, '状态'),
         h(
-          'select',
-          {
-            value: draft.status,
-            onChange: (event: { target: { value: string } }) => set({ status: event.target.value }),
-          },
-          Object.entries(STATUS_LABEL).map(([value, label]) => h('option', { key: value, value }, label)),
+          'div',
+          { className: 'task-editor-section' },
+          h('label', null, '备注'),
+          h('textarea', {
+            rows: 5,
+            value: draft.notes,
+            placeholder: '背景、下一步、链接…',
+            onChange: (event: { target: { value: string } }) => set({ notes: event.target.value }),
+          }),
+        ),
+        h(
+          'div',
+          { className: 'task-editor-section' },
+          h('label', null, '来源'),
+          draft.id === undefined
+            ? h('span', { className: 'small muted' }, '从邮件提取的任务会自动关联来源邮件。')
+            : h(
+                'span',
+                { className: 'small muted' },
+                task?.messageSubject !== undefined && task.messageSubject !== ''
+                  ? `来自邮件：${task.messageSubject}`
+                  : '无关联邮件',
+              ),
         ),
       ),
       h(
-        'div',
-        { className: 'mailharbor-field' },
-        h('label', null, '项目'),
+        'aside',
+        { className: 'task-editor-side' },
         h(
-          'select',
-          {
-            value: draft.projectId,
-            onChange: (event: { target: { value: string } }) => set({ projectId: event.target.value }),
-          },
-          h('option', { value: '' }, '无项目'),
-          projects.map((project) => h('option', { key: project.id, value: project.id }, project.name)),
+          'div',
+          { className: 'task-editor-field' },
+          h('label', null, '状态'),
+          h(
+            'select',
+            {
+              value: draft.status,
+              onChange: (event: { target: { value: string } }) =>
+                set({ status: event.target.value as Task['status'] }),
+            },
+            COLUMNS.map((column) => h('option', { key: column.status, value: column.status }, column.label)),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'task-editor-field' },
+          h('label', null, '截止日期'),
+          h('input', {
+            type: 'date',
+            value: draft.due,
+            onChange: (event: { target: { value: string } }) => set({ due: event.target.value }),
+          }),
+        ),
+        h(
+          'div',
+          { className: 'task-editor-field' },
+          h('label', null, '优先级'),
+          h(
+            'div',
+            { className: 'task-priority-picker' },
+            [0, 5, 9].map((value) =>
+              h(
+                'button',
+                {
+                  key: value,
+                  className: draft.priority === value ? 'active' : '',
+                  onClick: () => set({ priority: value }),
+                },
+                PRIORITY_LABEL[value] ?? String(value),
+              ),
+            ),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'task-editor-field' },
+          h('label', null, '项目'),
+          h(
+            'select',
+            {
+              value: draft.projectId,
+              onChange: (event: { target: { value: string } }) => set({ projectId: event.target.value }),
+            },
+            h('option', { value: '' }, '无项目'),
+            projects.map((project) => h('option', { key: project.id, value: project.id }, project.name)),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'task-editor-field' },
+          h('label', null, '负责人'),
+          h('input', {
+            value: draft.owner,
+            placeholder: '可选',
+            onChange: (event: { target: { value: string } }) => set({ owner: event.target.value }),
+          }),
         ),
       ),
-    ),
-    h(
-      'div',
-      { className: 'mailharbor-field' },
-      h('label', null, '负责人'),
-      h('input', {
-        value: draft.owner,
-        onChange: (event: { target: { value: string } }) => set({ owner: event.target.value }),
-      }),
     ),
   )
 }

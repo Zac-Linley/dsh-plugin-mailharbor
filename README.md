@@ -15,25 +15,26 @@ and read state.
 - Package: `@zaclinley/dsh-mailharbor`
 - Requirements: **DSH `>=0.2.2-0 <0.3.0`**, Node **>=24.9** (the runtime bundled with DSH is fine)
 - License: MIT
-- Status: **v0.5.0 — mail workspace, AI workspace, projects and tasks** (summary, reply, translate, Q&A, writing style, project workspaces with the AI conversation, a task panel with CalDAV). OAuth2 is next (see [Roadmap](#roadmap)).
+- Status: **v0.6.0 — mail workspace with a folder sidebar, AI workspace, projects and a Kanban task board**. Server mail is the default view and now opens from a warm, cached session. OAuth2 is next (see [Roadmap](#roadmap)).
 
 ## Features
 
-| Area          | What you get                                                                                                                                                                           |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Accounts      | Any IMAP/SMTP mailbox; password or app password; per-account data directory; switch accounts from the top bar                                                                          |
-| Unified inbox | A combined list and search across every account, with a per-message account badge                                                                                                      |
-| Local backup  | Incremental IMAP → SQLite backup with UIDVALIDITY handling, batched transactions, content-addressed attachments and a trigram full-text index                                          |
-| Browse        | Folders, paging, search across subject/sender/recipients/body/attachment names                                                                                                         |
-| Live server   | Newest messages straight from IMAP with paging, plus a **backed up / not backed up** marker per row                                                                                    |
-| Reader        | Sandboxed HTML rendering with a strict CSP, remote images off by default, plain-text fallback, attachment download                                                                     |
-| Compose       | Rich-text body, attachments (8 MB), reply / reply-all / forward with `In-Reply-To` and `References`, drafts, explicit send confirmation                                                |
-| Drafts        | Save, list in the **Drafts** folder, reopen to continue editing, delete                                                                                                                |
-| AI            | Chinese summary (结论 / 需要你做什么 / 关键信息 / 建议回复要点), AI reply with optional instructions and 中/EN, one-click translation of a draft, writing style learned from sent mail |
-| Credentials   | macOS Keychain, libsecret on Linux, Windows Credential Locker; passwords never enter `config.json`                                                                                     |
-| Agent tools   | `mail_status`, `mail_list`, `mail_read`, `mail_search`, `mail_drafts`, `mail_draft`, `mail_backup`                                                                                     |
-| Settings      | DSH Settings → MailHarbor: accounts, servers, checks, signature, read behaviour, list size, AI model and writing style                                                                 |
-| Updates       | A real build pipeline, GitHub Actions CI, Changesets versioning, and npm provenance                                                                                                    |
+| Area          | What you get                                                                                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Accounts      | Any IMAP/SMTP mailbox; password or app password; per-account data directory; accounts and folders in the left column                                                                                                           |
+| Unified inbox | A combined list and search across every account, with a per-message account badge                                                                                                                                              |
+| Local backup  | Incremental IMAP → SQLite backup with UIDVALIDITY handling, batched transactions, content-addressed attachments and a trigram full-text index                                                                                  |
+| Browse        | Folders with counts, paging, search across subject/sender/recipients/body/attachment names                                                                                                                                     |
+| Live server   | **Default view.** Newest messages straight from IMAP with paging; the folder list is cached and the IMAP session stays warm, so reopening is instant                                                                           |
+| Reader        | Sandboxed HTML rendering with a strict CSP, remote images off by default, plain-text fallback, attachment download                                                                                                             |
+| Compose       | Rich-text body, attachments (8 MB), reply / reply-all / forward with `In-Reply-To` and `References`, drafts, explicit send confirmation                                                                                        |
+| Drafts        | Save, list in the **Drafts** folder, reopen to continue editing, delete                                                                                                                                                        |
+| AI            | Persistent per-mail workspace: Chinese summary, reply (中/EN), translation, free-form Q&A, writing style; Markdown answers; cards convert into a reply, draft or body text; composer draft/polish/shorten with a version stack |
+| Projects      | Turn a mail and its whole AI conversation into a project folder (`BRIEF.md`, `CONVERSATION.md`), registered in DSH Workspaces with a starting session; append later AI records and add more mails from the list                |
+| Tasks         | Kanban board (待处理 / 进行中 / 已完成) with drag & drop, due/priority/owner/project, source-mail links, and AI extraction from the current mail                                                                               |
+| Credentials   | macOS Keychain, libsecret on Linux, Windows Credential Locker; passwords never enter `config.json`                                                                                                                             |
+| Agent tools   | `mail_status`, `mail_list`, `mail_read`, `mail_search`, `mail_drafts`, `mail_draft`, `mail_backup`                                                                                                                             |
+| Settings      | DSH Settings → MailHarbor: accounts, servers, checks, signature, read behaviour, list size, AI model and writing style, default project root                                                                                   |
 
 ## Screenshots
 
@@ -181,9 +182,11 @@ must be able to publish `@zaclinley/*`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 | **0.1.x** | Core mail workspace, backup, tools, settings, publishing pipeline               |
 | 0.2       | UI overhaul, migration from `dsh-plugin-mail`, installer polish                 |
 | 0.3       | Drafts, unified inbox, server paging, AI summary/reply/translate, writing style |
-| 0.4       | OAuth2 + XOAUTH2 (Gmail loopback/PKCE, Microsoft device code), token refresh    |
-| 0.5       | CalDAV tasks, Markdown/PDF reports                                              |
-| Later     | Export/import, onboarding, richer attachments                                   |
+| 0.4       | Persistent AI workspace, composer version stack                                 |
+| 0.5       | Projects from mail, task panel                                                  |
+| 0.6       | Mailbox sidebar, Kanban tasks, faster server browsing                           |
+| 0.7       | OAuth2 + XOAUTH2 (Gmail loopback/PKCE, Microsoft device code), token refresh    |
+| Later     | Reports, export/import, onboarding, richer attachments                          |
 
 ## Star history
 

@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { CalDavClient, CalDavSyncResult } from './caldav.js'
 
 const STATUSES = new Set(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED'])
 
@@ -387,50 +386,4 @@ export class TaskStore {
     }
     return removed
   }
-
-  calendarState(accountId: string): { calendarHref: string; lastSync: string; error: string } | null {
-    const row = this.open().prepare('SELECT * FROM calendar_state WHERE account_id = ?').get(accountId) as
-      Record<string, unknown> | undefined
-    if (row === undefined) return null
-    return {
-      calendarHref: String(row.calendar_href ?? ''),
-      lastSync: String(row.last_sync ?? ''),
-      error: String(row.error ?? ''),
-    }
-  }
-
-  setCalendarState(
-    accountId: string,
-    state: { calendarHref?: string | null; lastSync?: string | null; error?: string | null },
-  ): void {
-    this.open()
-      .prepare(
-        `INSERT INTO calendar_state (account_id, calendar_href, display_name, ctag, last_sync, error)
-         VALUES (?, ?, NULL, NULL, ?, ?)
-         ON CONFLICT(account_id) DO UPDATE SET calendar_href = excluded.calendar_href,
-           last_sync = excluded.last_sync, error = excluded.error`,
-      )
-      .run(accountId, state.calendarHref ?? null, state.lastSync ?? null, state.error ?? null)
-  }
-
-  /** Pull remote tasks, push local edits, and record the sync result. */
-  async sync(accountId: string, client: CalDavClient): Promise<CalDavSyncResult> {
-    try {
-      const result = await client.sync(this, accountId)
-      this.setCalendarState(accountId, {
-        calendarHref: result.calendarHref,
-        lastSync: new Date().toISOString(),
-        error: null,
-      })
-      return result
-    } catch (error) {
-      this.setCalendarState(accountId, {
-        lastSync: new Date().toISOString(),
-        error: error instanceof Error ? error.message : String(error),
-      })
-      throw error
-    }
-  }
 }
-
-export type { CalDavSyncResult }

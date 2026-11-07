@@ -18,15 +18,6 @@ export function MailSettings(): ReactNode {
   const [pollSeconds, setPollSeconds] = useState(60)
   const [listLimit, setListLimit] = useState(40)
   const [projectRoot, setProjectRoot] = useState('')
-  const [caldavAccountId, setCaldavAccountId] = useState('')
-  const [caldavUrl, setCaldavUrl] = useState('')
-  const [caldavUser, setCaldavUser] = useState('')
-  const [caldavPassword, setCaldavPassword] = useState('')
-  const [caldavHref, setCaldavHref] = useState('')
-  const [caldavHasPassword, setCaldavHasPassword] = useState(false)
-  const [caldavCalendar, setCaldavCalendar] = useState<{ lastSync: string; error: string } | null>(null)
-  const [caldavMessage, setCaldavMessage] = useState('')
-  const [caldavBusy, setCaldavBusy] = useState(false)
   const [aiEnabled, setAiEnabled] = useState(true)
   const [aiProvider, setAiProvider] = useState('deepseek-account')
   const [aiModel, setAiModel] = useState('deepseek-flash')
@@ -52,9 +43,6 @@ export function MailSettings(): ReactNode {
         setPollSeconds(view.read.pollSeconds)
         setListLimit(view.render.listLimit)
         setProjectRoot(view.projects.root)
-        setCaldavAccountId(
-          (current) => current || view.activeAccountId || appState.settings.activeAccountId || '',
-        )
         setAiEnabled(view.ai.enabled)
         setAiProvider(view.ai.provider)
         setAiModel(view.ai.model)
@@ -66,27 +54,6 @@ export function MailSettings(): ReactNode {
       cancelled = true
     }
   }, [tick])
-
-  useEffect(() => {
-    let cancelled = false
-    if (caldavAccountId === '') return
-    api
-      .taskCaldav(caldavAccountId)
-      .then((info) => {
-        if (cancelled) return
-        setCaldavUrl(info.caldav?.url ?? '')
-        setCaldavUser(info.caldav?.username ?? '')
-        setCaldavHref(info.caldav?.calendarHref ?? '')
-        setCaldavHasPassword(info.hasPassword)
-        setCaldavCalendar(info.calendar)
-      })
-      .catch((caught: unknown) => {
-        if (!cancelled) setCaldavMessage(errorText(caught))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [caldavAccountId, tick])
 
   useEffect(() => {
     let cancelled = false
@@ -299,152 +266,6 @@ export function MailSettings(): ReactNode {
             },
             '保存目录',
           ),
-        ),
-      ),
-
-      h(
-        'div',
-        { className: 'mailharbor-card' },
-        h('h3', null, '任务与 CalDAV'),
-        h(
-          'p',
-          { className: 'small muted' },
-          '任务面板的「同步 CalDAV」使用这里的配置。密码只存系统 Keychain，不写入配置文件。',
-        ),
-        h(
-          'div',
-          { className: 'mailharbor-grid' },
-          h(
-            Field,
-            { label: '账号' },
-            h(
-              'select',
-              {
-                value: caldavAccountId,
-                onChange: (event: { target: { value: string } }) => {
-                  setCaldavAccountId(event.target.value)
-                  setCaldavMessage('')
-                },
-              },
-              (settings?.accounts ?? []).map((item) =>
-                h('option', { key: item.id, value: item.id }, `${item.label}（${item.email}）`),
-              ),
-            ),
-          ),
-          h(
-            Field,
-            { label: '状态' },
-            h(
-              'span',
-              { className: 'small', style: { paddingTop: '7px', color: 'var(--m-text-3)' } },
-              caldavCalendar === null
-                ? '未同步'
-                : caldavCalendar.lastSync === ''
-                  ? '未同步'
-                  : `上次同步 ${new Date(caldavCalendar.lastSync).toLocaleString()}`,
-              caldavCalendar?.error ? ` · 失败：${caldavCalendar.error}` : '',
-            ),
-          ),
-        ),
-        h(
-          'div',
-          { className: 'mailharbor-grid' },
-          h(
-            Field,
-            { label: 'CalDAV 地址' },
-            h('input', {
-              value: caldavUrl,
-              placeholder: 'https://caldav.example.com/',
-              onChange: (event: { target: { value: string } }) => setCaldavUrl(event.target.value),
-            }),
-          ),
-          h(
-            Field,
-            { label: '用户名' },
-            h('input', {
-              value: caldavUser,
-              placeholder: '通常是邮箱地址',
-              onChange: (event: { target: { value: string } }) => setCaldavUser(event.target.value),
-            }),
-          ),
-        ),
-        h(
-          'div',
-          { className: 'mailharbor-grid' },
-          h(
-            Field,
-            { label: caldavHasPassword ? '应用密码（留空表示不修改）' : '应用密码' },
-            h('input', {
-              type: 'password',
-              value: caldavPassword,
-              placeholder: caldavHasPassword ? '已保存' : 'iCloud / Fastmail 等应用专用密码',
-              onChange: (event: { target: { value: string } }) => setCaldavPassword(event.target.value),
-            }),
-          ),
-          h(
-            Field,
-            { label: '任务日历路径（可选）' },
-            h('input', {
-              value: caldavHref,
-              placeholder: '留空自动发现',
-              onChange: (event: { target: { value: string } }) => setCaldavHref(event.target.value),
-            }),
-          ),
-        ),
-        h(
-          'div',
-          { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
-          h(
-            'button',
-            {
-              className: 'primary small',
-              disabled: caldavBusy,
-              onClick: () => {
-                setCaldavBusy(true)
-                setCaldavMessage('保存中…')
-                void api
-                  .saveTaskCaldav({
-                    accountId: caldavAccountId,
-                    url: caldavUrl,
-                    username: caldavUser,
-                    ...(caldavPassword === '' ? {} : { password: caldavPassword }),
-                    calendarHref: caldavHref,
-                  })
-                  .then((info) => {
-                    setCaldavHasPassword(info.hasPassword)
-                    setCaldavPassword('')
-                    setCaldavMessage(info.hasPassword ? '已保存' : '已保存地址，但还没有密码')
-                    setTick((value) => value + 1)
-                  })
-                  .catch((caught: unknown) => setCaldavMessage(errorText(caught)))
-                  .finally(() => setCaldavBusy(false))
-              },
-            },
-            caldavBusy ? '保存中…' : '保存 CalDAV',
-          ),
-          h(
-            'button',
-            {
-              className: 'ghost small',
-              disabled: caldavBusy,
-              onClick: () => {
-                setCaldavBusy(true)
-                setCaldavMessage('同步中…')
-                void api
-                  .syncTasks(caldavAccountId)
-                  .then((result) => {
-                    setCaldavMessage(
-                      `同步完成：拉取 ${String(result.result.pulled)}，推送 ${String(result.result.pushed)}`,
-                    )
-                    setTick((value) => value + 1)
-                  })
-                  .catch((caught: unknown) => setCaldavMessage(errorText(caught)))
-                  .finally(() => setCaldavBusy(false))
-              },
-            },
-            '立即同步',
-          ),
-          h('span', { className: 'small muted' }, caldavMessage),
         ),
       ),
 

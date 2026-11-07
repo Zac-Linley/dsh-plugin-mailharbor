@@ -93,6 +93,11 @@ export class ImapProvider {
   private connecting: Promise<ImapFlow> | null = null
   private queue: Promise<unknown> = Promise.resolve()
   private disposed = false
+  private mailboxCache: { at: number; items: ImapMailbox[] } | null = null
+  private readonly countCache = new Map<string, number>()
+  private readonly pageCache = new Map<string, { at: number; total: number; items: ImapMessage[] }>()
+  private keepalive: ReturnType<typeof setInterval> | null = null
+  private static readonly MAILBOX_TTL_MS = 60_000
 
   constructor(settings: ImapSettings, credentials: ImapCredentials, options: ImapProviderOptions = {}) {
     this.settings = settings
@@ -123,7 +128,10 @@ export class ImapProvider {
         // process-wide handler so an idle socket error is never unhandled.
       })
       client.on('close', () => {
-        if (this.client === client) this.client = null
+        if (this.client === client) {
+          this.client = null
+          this.stopKeepalive()
+        }
       })
       try {
         await client.connect()
@@ -133,6 +141,7 @@ export class ImapProvider {
         )
       }
       this.client = client
+      this.startKeepalive(client)
       return client
     })()
     try {
@@ -140,6 +149,33 @@ export class ImapProvider {
     } finally {
       this.connecting = null
     }
+  }
+
+  private startKeepalive(client: ImapFlow): void {
+    this.stopKeepalive()
+    // A NOOP every few minutes keeps the server from dropping an idle session,
+    // so opening server mail does not pay a TLS + LOGIN round trip.
+    this.keepalive = setInterval(() => {
+      if (this.disposed || this.client !== client || !client.usable) return
+      void this.run(async (active) => {
+        await active.noop()
+      }).catch(() => {
+        // A failed keepalive is handled by the next operation.
+      })
+    }, 240_000)
+    this.keepalive.unref?.()
+  }
+
+  private stopKeepalive(): void {
+    if (this.keepalive !== null) {
+      clearInterval(this.keepalive)
+      this.keepalive = null
+    }
+  }
+
+  /** Connect eagerly so the first list does not pay the handshake. */
+  async warm(): Promise<void> {
+    await this.connect()
   }
 
   private async reset(reason: string): Promise<void> {
@@ -187,37 +223,40 @@ export class ImapProvider {
     })
   }
 
-  async mailboxes(): Promise<ImapMailbox[]> {
-    return this.run((client) => this.listMailboxes(client))
+  async mailboxes(force = false): Promise<ImapMailbox[]> {
+    const cached = this.mailboxCache
+    if (!force && cached !== null && Date.now() - cached.at < ImapProvider.MAILBOX_TTL_MS) {
+      return cached.items
+    }
+    const items = await this.run((client) => this.listMailboxes(client))
+    this.mailboxCache = { at: Date.now(), items }
+    return items
   }
 
   private async listMailboxes(client: ImapFlow): Promise<ImapMailbox[]> {
     const listed = await client.list()
-    const result: ImapMailbox[] = []
-    for (const box of listed) {
-      if (box.flags?.has?.('\\Noselect') === true) continue
-      let messages = 0
-      try {
-        const status = await client.status(box.path, { messages: true })
-        if (status !== false) messages = Number(status.messages ?? 0)
-      } catch {
-        // Some servers refuse STATUS on the selected mailbox; the count is optional.
-      }
-      result.push({
-        path: box.path,
-        name: box.name ?? box.path,
-        specialUse: box.specialUse ?? null,
-        messages,
-      })
-    }
-    return result
+    const boxes = listed.filter((box) => box.flags?.has?.('\\Noselect') !== true)
+    return boxes.map((box) => ({
+      path: box.path,
+      name: box.name ?? box.path,
+      specialUse: box.specialUse ?? null,
+      messages: this.countCache.get(box.path) ?? 0,
+    }))
   }
 
   async list(mailbox: string, limit: number, offset = 0): Promise<{ total: number; items: ImapMessage[] }> {
+    const cacheKey = `${mailbox}:${String(limit)}:${String(offset)}`
+    const cached = this.pageCache.get(cacheKey)
+    if (cached !== undefined && Date.now() - cached.at < 15_000) {
+      return { total: cached.total, items: cached.items }
+    }
     return this.run(async (client) => {
       const lock = await client.getMailboxLock(mailbox)
       try {
         const total = Number((client.mailbox as { exists?: number } | undefined)?.exists ?? 0)
+        const cachedBox = this.mailboxCache?.items.find((box) => box.path === mailbox)
+        if (cachedBox !== undefined) cachedBox.messages = total
+        this.countCache.set(mailbox, total)
         const end = total - offset
         if (total === 0 || end < 1) return { total, items: [] }
         const start = Math.max(1, end - limit + 1)
@@ -232,6 +271,11 @@ export class ImapProvider {
           items.push(toMessage(message as unknown as RawImapMessage))
         }
         items.sort((left, right) => right.date.localeCompare(left.date))
+        this.pageCache.set(cacheKey, { at: Date.now(), total, items })
+        if (this.pageCache.size > 30) {
+          const oldest = this.pageCache.keys().next().value
+          if (oldest !== undefined) this.pageCache.delete(oldest)
+        }
         return { total, items }
       } finally {
         lock.release()
@@ -326,6 +370,7 @@ export class ImapProvider {
   }
 
   async setSeen(mailbox: string, uid: number, seen: boolean): Promise<{ read: boolean; flags: string[] }> {
+    this.pageCache.clear()
     return this.run(async (client) => {
       const lock = await client.getMailboxLock(mailbox)
       try {
@@ -370,6 +415,8 @@ export class ImapProvider {
 
   async dispose(): Promise<void> {
     this.disposed = true
+    this.pageCache.clear()
+    this.stopKeepalive()
     await this.reset('dispose')
   }
 }

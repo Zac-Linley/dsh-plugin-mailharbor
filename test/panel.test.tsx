@@ -157,7 +157,7 @@ describe('MailPanel rendering', () => {
     expect(container.textContent).toContain('Alice')
   })
 
-  it('asks for a login only on the server source', async () => {
+  it('defaults to server and allows local browsing without a login', async () => {
     const app = state({
       accounts: [account],
       activeAccountId: account.id,
@@ -166,18 +166,19 @@ describe('MailPanel rendering', () => {
     })
     vi.stubGlobal('fetch', mockApi(app))
     await render(h(MailPanel))
-    // Local browsing is allowed while logged out.
-    expect(container.textContent).not.toContain('登录 me@example.com')
-    const server = [...container.querySelectorAll('button')].find(
-      (button) => button.textContent === '服务器实时',
+    // Server mode is the default, so a logged-out account asks for a login.
+    expect(container.textContent).toContain('登录 me@example.com')
+    const local = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent === '本地备份',
     )
-    expect(server).toBeDefined()
+    expect(local).toBeDefined()
     await act(async () => {
-      server?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      local?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
-    expect(container.textContent).toContain('登录 me@example.com')
+    // Local browsing is allowed while logged out.
+    expect(container.textContent).not.toContain('登录 me@example.com')
   })
 })

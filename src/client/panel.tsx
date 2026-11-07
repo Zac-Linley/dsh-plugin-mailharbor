@@ -1,4 +1,4 @@
-import { createElement as h, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createElement as h, useCallback, useEffect, useState, type ReactNode } from 'react'
 import type {
   AppState,
   BackupStatus,
@@ -28,6 +28,26 @@ interface Folder {
 const EMPTY_PAGE: Page<MessageSummary> = { items: [], total: 0, offset: 0, limit: 40 }
 const DRAFTS = '__drafts'
 
+/** Paint the last known folders/page while the server answers. */
+const folderCache = new Map<string, Folder[]>()
+const pageCache = new Map<string, Page<MessageSummary>>()
+
+const FOLDER_LABELS: Record<string, string> = {
+  INBOX: '收件箱',
+  'Sent Items': '已发送',
+  Sent: '已发送',
+  Drafts: '草稿',
+  'Junk E-mail': '垃圾邮件',
+  Junk: '垃圾邮件',
+  Trash: '已删除',
+  Deleted: '已删除',
+  Archive: '存档',
+}
+
+function folderName(name: string): string {
+  return FOLDER_LABELS[name] ?? name
+}
+
 function errorText(error: unknown): string {
   return error instanceof ApiError || error instanceof Error ? error.message : String(error)
 }
@@ -45,7 +65,7 @@ export function MailPanel(): ReactNode {
   const [state, setState] = useState<AppState | null>(null)
   const [error, setError] = useState('')
   const [accountScope, setAccountScope] = useState<string | null>(null)
-  const [source, setSource] = useState<'local' | 'server'>('local')
+  const [source, setSource] = useState<'local' | 'server'>('server')
   const [mailbox, setMailbox] = useState('all')
   const [folders, setFolders] = useState<Folder[]>([])
   const [query, setQuery] = useState('')
@@ -239,6 +259,9 @@ export function MailPanel(): ReactNode {
   useEffect(() => {
     if (accountScope === null) return
     let cancelled = false
+    const cacheKey = `${accountScope}:${source}`
+    const cached = folderCache.get(cacheKey)
+    if (cached !== undefined) setFolders(cached)
     api
       .folders({ accountId: accountScope, source })
       .then((result) => {
@@ -260,9 +283,10 @@ export function MailPanel(): ReactNode {
               ]
             : result.items.map((item) => ({ ...item, label: item.label ?? item.name }))
         setFolders(items)
+        folderCache.set(cacheKey, items)
       })
       .catch(() => {
-        if (!cancelled) setFolders([])
+        if (!cancelled && cached === undefined) setFolders([])
       })
     return () => {
       cancelled = true
@@ -311,12 +335,33 @@ export function MailPanel(): ReactNode {
         cancelled = true
       }
     }
+    const pageKey = `${accountScope}:${source}:${mailbox}:${search}:${String(limit)}`
+    const cachedPage = pageCache.get(pageKey)
+    if (cachedPage !== undefined) {
+      setPage(cachedPage)
+      setLoading(false)
+    }
     api
       .messages({ accountId: accountScope, source, mailbox, query: search, limit })
       .then((result) => {
         if (!cancelled) {
           setPage(result)
           setDrafts([])
+          // The SELECT that listed this folder also tells us its size, so the
+          // sidebar count appears without a second round trip.
+          if (source === 'server' && mailbox !== 'all') {
+            const update = (list: Folder[]): Folder[] =>
+              list.map((folder) => (folder.name === mailbox ? { ...folder, count: result.total } : folder))
+            setFolders(update)
+            const key = `${accountScope}:server`
+            const cachedFolders = folderCache.get(key)
+            if (cachedFolders !== undefined) folderCache.set(key, update(cachedFolders))
+          }
+          pageCache.set(pageKey, result)
+          if (pageCache.size > 12) {
+            const oldest = pageCache.keys().next().value
+            if (oldest !== undefined) pageCache.delete(oldest)
+          }
         }
       })
       .catch((caught: unknown) => {
@@ -533,20 +578,11 @@ export function MailPanel(): ReactNode {
     }
   }
 
-  const folderOptions = useMemo(
-    () =>
-      folders.map((folder) => ({
-        value: folder.name,
-        label: `${folder.label ?? folder.name}${folder.count > 0 ? ` (${String(folder.count)})` : ''}`,
-      })),
-    [folders],
-  )
-
   if (state === null) {
     return h(
       'div',
       { className: 'mailharbor' },
-      h('div', { className: 'mailharbor-empty' }, error === '' ? '正在加载邮箱…' : error),
+      h('div', { className: 'mailharbor-settings' }, '正在读取邮箱…'),
     )
   }
 
@@ -590,19 +626,16 @@ export function MailPanel(): ReactNode {
         'div',
         { className: 'mailharbor-account' },
         h(Avatar, { email: isAll ? 'all' : (currentAccount?.email ?? '?'), size: 26 }),
-        accounts.length > 1
-          ? h(
-              'select',
-              {
-                value: accountScope ?? '',
-                onChange: (event: { target: { value: string } }) => void switchAccount(event.target.value),
-                'aria-label': '账号',
-              },
-              h('option', { key: 'all', value: 'all' }, '全部账号'),
-              accounts.map((item) => h('option', { key: item.id, value: item.id }, item.label)),
-            )
-          : h('span', { className: 'name' }, currentAccount?.label ?? ''),
-        isAll ? h('span', { className: 'badge' }, `${String(accounts.length)} 个账号`) : null,
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', minWidth: 0 } },
+          h('span', { className: 'name' }, isAll ? '统一收件箱' : (currentAccount?.label ?? '')),
+          h(
+            'span',
+            { className: 'small muted' },
+            isAll ? `${String(accounts.length)} 个账号` : (currentAccount?.email ?? ''),
+          ),
+        ),
         !isAll && state.loggedIn === false ? h('span', { className: 'badge warn' }, '未登录') : null,
       ),
       h(
@@ -687,25 +720,78 @@ export function MailPanel(): ReactNode {
           'div',
           { className: 'mailharbor-body', 'data-mode': narrow && selected !== null ? 'reader' : 'list' },
           h(
+            'aside',
+            { className: 'mailharbor-side' },
+            h(
+              'button',
+              {
+                className: `mailharbor-side-item${isAll ? ' active' : ''}`,
+                onClick: () => {
+                  setAccountScope('all')
+                  setSource('local')
+                  setMailbox('all')
+                  setSelected(null)
+                },
+              },
+              h(Icon, { name: 'mail', size: 15 }),
+              h('span', { className: 'name' }, '统一收件箱'),
+              h('span', { className: 'count' }, String(accounts.length)),
+            ),
+            h('div', { className: 'mailharbor-side-section' }, '账号'),
+            accounts.map((item) =>
+              h(
+                'button',
+                {
+                  key: item.id,
+                  className: `mailharbor-side-item${!isAll && item.id === accountScope ? ' active' : ''}`,
+                  onClick: () => {
+                    void switchAccount(item.id)
+                    setSource('server')
+                    setMailbox('INBOX')
+                  },
+                },
+                h(Avatar, { email: item.email, size: 18 }),
+                h(
+                  'span',
+                  { className: 'name' },
+                  h('span', null, item.label),
+                  h('span', { className: 'sub' }, item.email),
+                ),
+                item.enabled === false ? h('span', { className: 'badge warn' }, '停用') : null,
+              ),
+            ),
+            isAll
+              ? null
+              : h(
+                  'div',
+                  { className: 'mailharbor-side-section' },
+                  source === 'server' ? '服务器文件夹' : '本地文件夹',
+                ),
+            isAll
+              ? null
+              : folders.map((folder) =>
+                  h(
+                    'button',
+                    {
+                      key: folder.name,
+                      className: `mailharbor-side-item${mailbox === folder.name ? ' active' : ''}`,
+                      onClick: () => {
+                        setMailbox(folder.name)
+                        setSelected(null)
+                      },
+                    },
+                    h(Icon, { name: folder.name === DRAFTS ? 'compose' : 'folder', size: 14 }),
+                    h('span', { className: 'name' }, folderName(folder.label ?? folder.name)),
+                    folder.count > 0 ? h('span', { className: 'count' }, String(folder.count)) : null,
+                  ),
+                ),
+          ),
+          h(
             'div',
             { className: 'mailharbor-list' },
             h(
               'div',
               { className: 'mailharbor-filters' },
-              h(
-                'select',
-                {
-                  value: mailbox,
-                  onChange: (event: { target: { value: string } }) => {
-                    setMailbox(event.target.value)
-                    setSelected(null)
-                  },
-                  'aria-label': '邮箱文件夹',
-                },
-                folderOptions.map((option) =>
-                  h('option', { key: option.value, value: option.value }, option.label),
-                ),
-              ),
               h('input', {
                 type: 'search',
                 placeholder: showingDrafts ? '搜索草稿' : '搜索邮件',
@@ -950,7 +1036,9 @@ export function MailPanel(): ReactNode {
                                   accounts.find((entry) => entry.id === item.accountId)?.label ?? '',
                                 )
                               : null,
-                            item.backedUp === false ? h('span', { className: 'badge warn' }, '未备份') : null,
+                            source === 'local' && item.backedUp === false
+                              ? h('span', { className: 'badge warn' }, '未备份')
+                              : null,
                             h('span', { className: 'date' }, shortDate(item.date)),
                           ),
                           h(

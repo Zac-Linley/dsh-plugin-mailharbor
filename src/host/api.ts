@@ -29,7 +29,6 @@ import { resolveUserPath } from './paths.js'
 import { BackupEngine } from './backup.js'
 import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestContext } from './http.js'
 import { normalizeTranslated, summaryBlocks, textToHtml } from './ai.js'
-import { CalDavClient } from './caldav.js'
 import { appendConversation, createProject, type ProjectRecord } from './projects.js'
 import type { TaskRecord } from './tasks.js'
 import { VERSION } from './version.js'
@@ -98,7 +97,7 @@ function buildRouter(runtime: MailHarborRuntime): Router {
         : [accountFrom(runtime, url).account]
     if (source === 'server') {
       const provider = runtime.provider(accounts[0] as Account)
-      const boxes = await provider.mailboxes()
+      const boxes = await provider.mailboxes(url.searchParams.get('refresh') === '1')
       return {
         items: boxes.map((box) => ({ name: box.path, label: box.name, count: box.messages })),
       }
@@ -599,7 +598,7 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       projectId: url.searchParams.get('projectId') ?? '',
       query: url.searchParams.get('query') ?? '',
     })
-    return { items: items.map(taskView), calendar: runtime.tasks().calendarState(account.id) }
+    return { items: items.map(taskView) }
   })
 
   router.post('/tasks', async ({ body }) => {
@@ -657,65 +656,6 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       return { suggestions }
     } catch (error) {
       throw aiHttpError(error)
-    }
-  })
-
-  router.get('/tasks/caldav', ({ url }) => {
-    const account = accountFromPayload(runtime, { accountId: url.searchParams.get('accountId') ?? undefined })
-    return {
-      caldav: account.caldav,
-      calendar: runtime.tasks().calendarState(account.id),
-      hasPassword:
-        runtime.credentials.readSecret(`${account.keychainService}:caldav`, account.email) !== undefined,
-    }
-  })
-
-  router.put('/tasks/caldav', async ({ body }) => {
-    const payload = await body()
-    const account = accountFromPayload(runtime, payload)
-    const url = String(payload.url ?? '').trim()
-    const username = String(payload.username ?? '').trim()
-    const calendarHref = String(payload.calendarHref ?? '').trim()
-    const caldav = url === '' ? null : { url, username, ...(calendarHref === '' ? {} : { calendarHref }) }
-    const accounts = runtime.current.accounts.map((item) =>
-      item.id === account.id ? { ...item, caldav } : item,
-    )
-    saveAccounts(accounts, runtime.current.activeAccountId)
-    if (typeof payload.password === 'string' && payload.password !== '') {
-      runtime.credentials.writeSecret(`${account.keychainService}:caldav`, account.email, payload.password)
-    }
-    runtime.refresh()
-    const updated = runtime.current.accounts.find((item) => item.id === account.id) ?? account
-    return {
-      caldav: updated.caldav,
-      title: '',
-      hasPassword:
-        runtime.credentials.readSecret(`${updated.keychainService}:caldav`, updated.email) !== undefined,
-    }
-  })
-
-  router.post('/tasks/sync', async ({ body }) => {
-    const payload = await body()
-    const account = accountFromPayload(runtime, payload)
-    const caldav = account.caldav
-    if (caldav === null) throw new HttpError(400, '请先配置 CalDAV 地址和账号')
-    const password = runtime.credentials.readSecret(`${account.keychainService}:caldav`, account.email)
-    if (password === undefined || password === '') throw new HttpError(400, '请先保存 CalDAV 应用密码')
-    try {
-      const client = new CalDavClient(caldav, password)
-      const result = await runtime.tasks().sync(account.id, client)
-      if (result.calendarHref !== '' && result.calendarHref !== (caldav.calendarHref ?? '')) {
-        const accounts = runtime.current.accounts.map((item) =>
-          item.id === account.id
-            ? { ...item, caldav: { ...caldav, calendarHref: result.calendarHref } }
-            : item,
-        )
-        saveAccounts(accounts, runtime.current.activeAccountId)
-        runtime.refresh()
-      }
-      return { result, calendar: runtime.tasks().calendarState(account.id) }
-    } catch (error) {
-      throw new HttpError(400, error instanceof Error ? error.message : String(error))
     }
   })
 

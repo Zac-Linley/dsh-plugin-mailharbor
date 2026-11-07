@@ -52,6 +52,12 @@ const PATHS: Record<string, ReactNode> = {
   folder: h('path', {
     d: 'M3.5 6.5A1.5 1.5 0 0 1 5 5h4l2 2.5h8A1.5 1.5 0 0 1 20.5 9v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z',
   }),
+  calendar: h(
+    'g',
+    null,
+    h('rect', { x: 3.5, y: 5, width: 17, height: 15.5, rx: 2 }),
+    h('path', { d: 'M3.5 9.5h17M8 3.5v3M16 3.5v3' }),
+  ),
   checklist: h(
     'g',
     null,

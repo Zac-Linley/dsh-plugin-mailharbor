@@ -123,15 +123,4 @@ describe('TaskStore', () => {
     expect(removed).toBe(1)
     expect(store.list({ accountId: 'acc_1' }).map((task) => task.href)).toContain('https://dav/cal/x.ics')
   })
-
-  it('records the calendar sync state', () => {
-    store.setCalendarState('acc_1', {
-      calendarHref: 'https://dav/cal/',
-      lastSync: '2026-11-07T10:00:00Z',
-      error: null,
-    })
-    expect(store.calendarState('acc_1')?.calendarHref).toBe('https://dav/cal/')
-    store.setCalendarState('acc_1', { lastSync: '2026-11-07T11:00:00Z', error: 'boom' })
-    expect(store.calendarState('acc_1')?.error).toBe('boom')
-  })
 })
