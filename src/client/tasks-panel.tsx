@@ -18,6 +18,7 @@ const COLUMNS: { status: Task['status']; label: string; hint: string }[] = [
   { status: 'NEEDS-ACTION', label: '待处理', hint: '还没开始' },
   { status: 'IN-PROCESS', label: '进行中', hint: '正在做' },
   { status: 'COMPLETED', label: '已完成', hint: '收尾' },
+  { status: 'CANCELLED', label: '终止', hint: '不做了' },
 ]
 
 const PRIORITY_LABEL: Record<number, string> = { 0: '无', 5: '中', 9: '高' }
@@ -68,7 +69,9 @@ export function TasksIcon(): ReactNode {
         if (accountId === null) return
         const result = await api.tasks(accountId)
         if (!cancelled) {
-          setCount(result.items.filter((task) => task.status !== 'COMPLETED').length)
+          setCount(
+            result.items.filter((task) => task.status !== 'COMPLETED' && task.status !== 'CANCELLED').length,
+          )
         }
       } catch {
         // A logged-out profile simply shows no badge.
@@ -133,6 +136,7 @@ export function TasksPanel(): ReactNode {
   const [tasks, setTasks] = useState<Task[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [filter, setFilter] = useState<Filter>('all')
+  const [projectFilter, setProjectFilter] = useState('')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
@@ -189,11 +193,6 @@ export function TasksPanel(): ReactNode {
     },
     [filter],
   )
-
-  const open = tasks.filter((task) => task.status !== 'COMPLETED')
-  const doneCount = tasks.length - open.length
-  const progress = tasks.length === 0 ? 0 : Math.round((doneCount / tasks.length) * 100)
-  const overdue = open.filter((task) => task.due !== '' && task.due.slice(0, 10) < dateKey(new Date())).length
 
   const switchAccount = async (id: string): Promise<void> => {
     try {
@@ -311,47 +310,6 @@ export function TasksPanel(): ReactNode {
       { className: 'tasks-board-wrap' },
       h(
         'div',
-        { className: 'tasks-summary' },
-        h(
-          'div',
-          { className: 'tasks-summary-main' },
-          h(
-            'div',
-            { className: 'tasks-summary-labels' },
-            h('strong', null, '总体进度'),
-            h(
-              'span',
-              { className: 'muted small' },
-              `${String(doneCount)} / ${String(tasks.length)} · ${String(progress)}%`,
-            ),
-          ),
-          h('div', { className: 'tasks-bar' }, h('span', { style: { width: `${String(progress)}%` } })),
-        ),
-        h(
-          'div',
-          { className: 'tasks-stats' },
-          h(
-            'span',
-            { className: 'tasks-stat' },
-            h('strong', null, String(open.length)),
-            h('span', null, '待办'),
-          ),
-          h(
-            'span',
-            { className: overdue > 0 ? 'tasks-stat danger' : 'tasks-stat' },
-            h('strong', null, String(overdue)),
-            h('span', null, '逾期'),
-          ),
-          h(
-            'span',
-            { className: 'tasks-stat' },
-            h('strong', null, String(projects.length)),
-            h('span', null, '项目'),
-          ),
-        ),
-      ),
-      h(
-        'div',
         { className: 'tasks-toolbar' },
         h(
           'div',
@@ -369,13 +327,31 @@ export function TasksPanel(): ReactNode {
           ),
         ),
         h('span', { className: 'spacer' }),
+        h(
+          'select',
+          {
+            value: projectFilter,
+            onChange: (event: { target: { value: string } }) => setProjectFilter(event.target.value),
+            'aria-label': '按项目筛选',
+          },
+          h('option', { value: '' }, '全部项目'),
+          projects.map((project) => h('option', { key: project.id, value: project.id }, project.name)),
+        ),
         h('span', { className: 'small muted' }, '拖动卡片可改变状态'),
       ),
       h(
         'div',
         { className: 'tasks-board' },
         COLUMNS.map((column) => {
-          const cards = tasks.filter((task) => task.status === column.status).filter(matchesFilter)
+          const cards = tasks
+            .filter((task) => task.status === column.status)
+            .filter(matchesFilter)
+            .filter((task) => projectFilter === '' || task.projectId === projectFilter)
+            .sort((left, right) => {
+              const leftDue = left.due === '' ? '9999' : left.due.slice(0, 10)
+              const rightDue = right.due === '' ? '9999' : right.due.slice(0, 10)
+              return leftDue.localeCompare(rightDue)
+            })
           return h(
             'div',
             {

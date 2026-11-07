@@ -224,6 +224,69 @@ export class MailDatabase {
     return { items: rows.map((row) => rowToSummary(row as Record<string, unknown>)), total, offset, limit }
   }
 
+  /** Structured search used by AI search (keywords + sender + dates). */
+  searchAdvanced(options: {
+    mailbox?: string
+    keywords?: string[]
+    from?: string
+    subject?: string
+    since?: string
+    before?: string
+    limit?: number
+  }): Page<MessageSummary> {
+    const db = this.open()
+    const where: string[] = []
+    const params: (string | number)[] = []
+    const mailbox = String(options.mailbox ?? 'all')
+    if (mailbox !== '' && mailbox !== 'all') {
+      where.push('e.mailbox = ?')
+      params.push(mailbox)
+    }
+    const keywords = (options.keywords ?? []).filter((keyword) => keyword !== '')
+    if (keywords.length > 0) {
+      const clauses: string[] = []
+      for (const keyword of keywords) {
+        clauses.push(
+          '(e.subject LIKE ? OR e.from_name LIKE ? OR e.from_addr LIKE ? OR e.to_addr LIKE ? OR e.body_text LIKE ?)',
+        )
+        const like = `%${keyword}%`
+        params.push(like, like, like, like, like)
+      }
+      where.push(`(${clauses.join(' OR ')})`)
+    }
+    if ((options.from ?? '') !== '') {
+      const like = `%${String(options.from)}%`
+      where.push('(e.from_name LIKE ? OR e.from_addr LIKE ?)')
+      params.push(like, like)
+    }
+    if ((options.subject ?? '') !== '') {
+      where.push('e.subject LIKE ?')
+      params.push(`%${String(options.subject)}%`)
+    }
+    if ((options.since ?? '') !== '') {
+      where.push('substr(e.date, 1, 10) >= ?')
+      params.push(String(options.since))
+    }
+    if ((options.before ?? '') !== '') {
+      where.push('substr(e.date, 1, 10) <= ?')
+      params.push(String(options.before))
+    }
+    const limit = Math.min(100, Math.max(1, options.limit ?? 60))
+    if (where.length === 0) return { items: [], total: 0, offset: 0, limit }
+    const clause = `WHERE ${where.join(' AND ')}`
+    const columns = `SELECT e.id, e.mailbox, e.uid, e.subject, e.from_name, e.from_addr, e.to_addr, e.cc,
+        e.message_id, e.date, length(e.body_text) AS text_length,
+        (SELECT COUNT(*) FROM attachments a WHERE a.email_id = e.id) AS attachment_count,
+        substr(COALESCE(e.body_text, ''), 1, 240) AS snippet`
+    const total = Number(
+      db.prepare(`SELECT COUNT(*) AS count FROM emails e ${clause}`).get(...params)?.count ?? 0,
+    )
+    const rows = db
+      .prepare(`${columns} FROM emails e ${clause} ORDER BY e.date DESC, e.id DESC LIMIT ?`)
+      .all(...params, limit)
+    return { items: rows.map((row) => rowToSummary(row as Record<string, unknown>)), total, offset: 0, limit }
+  }
+
   get(localId: number): MessageDetail | undefined {
     const db = this.open()
     const row = db

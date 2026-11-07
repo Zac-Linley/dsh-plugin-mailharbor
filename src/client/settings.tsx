@@ -258,13 +258,31 @@ export function MailSettings(): ReactNode {
             }),
           ),
           h(
-            'button',
-            {
-              className: 'ghost small',
-              style: { alignSelf: 'end' },
-              onClick: () => void saveGeneral({ projects: { root: projectRoot } }),
-            },
-            '保存目录',
+            'div',
+            { style: { display: 'flex', gap: '6px', alignSelf: 'end' } },
+            h(
+              'button',
+              {
+                className: 'ghost small',
+                onClick: () => {
+                  void api
+                    .pickDirectory()
+                    .then((result) => {
+                      if (result.path !== null) setProjectRoot(result.path)
+                    })
+                    .catch((caught: unknown) => setError(errorText(caught)))
+                },
+              },
+              '浏览…',
+            ),
+            h(
+              'button',
+              {
+                className: 'ghost small',
+                onClick: () => void saveGeneral({ projects: { root: projectRoot } }),
+              },
+              '保存目录',
+            ),
           ),
         ),
       ),

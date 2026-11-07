@@ -283,6 +283,55 @@ export class ImapProvider {
     })
   }
 
+  async search(
+    mailbox: string,
+    options: {
+      keywords?: string[]
+      from?: string
+      subject?: string
+      since?: string
+      before?: string
+      limit?: number
+    },
+  ): Promise<{ items: ImapMessage[]; total: number }> {
+    return this.run(async (client) => {
+      const lock = await client.getMailboxLock(mailbox)
+      try {
+        const criteria: Record<string, unknown> = {}
+        if ((options.from ?? '') !== '') criteria.from = options.from
+        if ((options.subject ?? '') !== '') criteria.subject = options.subject
+        const keywords = (options.keywords ?? []).filter((keyword) => keyword !== '')
+        if (keywords.length > 0) criteria.text = keywords.join(' ')
+        if ((options.since ?? '') !== '') criteria.since = new Date(`${String(options.since)}T00:00:00Z`)
+        if ((options.before ?? '') !== '') criteria.before = new Date(`${String(options.before)}T23:59:59Z`)
+        if (Object.keys(criteria).length === 0) return { items: [], total: 0 }
+        const found = await client.search(criteria, { uid: true })
+        const uids = (Array.isArray(found) ? found : [])
+          .map((uid) => Number(uid))
+          .filter((uid) => Number.isFinite(uid))
+          .sort((left, right) => left - right)
+        const take = uids.slice(-Math.min(100, options.limit ?? 60))
+        if (take.length === 0) return { items: [], total: uids.length }
+        const wanted = new Set(take)
+        const items: ImapMessage[] = []
+        const first = take[0] ?? 0
+        const last = take[take.length - 1] ?? 0
+        for await (const message of client.fetch(
+          `${String(first)}:${String(last)}`,
+          { uid: true, envelope: true, flags: true, internalDate: true, size: true },
+          { uid: true },
+        )) {
+          const item = toMessage(message as unknown as RawImapMessage)
+          if (wanted.has(item.uid)) items.push(item)
+        }
+        items.sort((left, right) => right.date.localeCompare(left.date))
+        return { items, total: uids.length }
+      } finally {
+        lock.release()
+      }
+    })
+  }
+
   async read(mailbox: string, uid: number): Promise<ImapFullMessage> {
     return this.run(async (client) => {
       const lock = await client.getMailboxLock(mailbox)

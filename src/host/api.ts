@@ -26,6 +26,7 @@ import {
   type MailHarborConfig,
 } from './config.js'
 import { resolveUserPath } from './paths.js'
+import { pickDirectory } from './picker.js'
 import { BackupEngine } from './backup.js'
 import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestContext } from './http.js'
 import { normalizeTranslated, summaryBlocks, textToHtml } from './ai.js'
@@ -484,6 +485,60 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     }
   })
 
+  router.post('/ai/search', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const query = String(payload.query ?? '').trim()
+    if (query === '') throw new HttpError(400, '搜索内容不能为空')
+    const source = sourceOfPayload(payload)
+    const mailbox = String(payload.mailbox ?? 'all')
+    try {
+      const filters = await runtime.ai().parseSearch(query)
+      const hasCondition =
+        filters.keywords.length > 0 ||
+        filters.from !== '' ||
+        filters.subject !== '' ||
+        filters.since !== '' ||
+        filters.before !== ''
+      if (!hasCondition) throw new HttpError(400, '没有理解出可用的搜索条件，请换个说法')
+      if (source === 'server') {
+        const provider = runtime.provider(account)
+        const result = await provider.search(mailbox === 'all' ? 'INBOX' : mailbox, {
+          ...filters,
+          limit: 60,
+        })
+        return {
+          items: result.items.map((item) => ({ ...item, accountId: account.id })),
+          total: result.total,
+          offset: 0,
+          limit: 60,
+          ai: filters,
+        }
+      }
+      const database = runtime.database(account)
+      // Local search is cross-folder: a search should find a mail wherever it is.
+      const keywords = [...filters.keywords]
+      let page = database.searchAdvanced({ ...filters, subject: '', keywords, mailbox: 'all', limit: 60 })
+      if (page.total === 0 && filters.subject !== '') {
+        page = database.searchAdvanced({
+          ...filters,
+          subject: '',
+          keywords: [...keywords, filters.subject],
+          mailbox: 'all',
+          limit: 60,
+        })
+      }
+      return {
+        ...page,
+        items: page.items.map((item) => ({ ...item, accountId: account.id })),
+        ai: filters,
+      }
+    } catch (error) {
+      if (error instanceof HttpError) throw error
+      throw aiHttpError(error)
+    }
+  })
+
   router.post('/ai/compose', async ({ body }) => {
     const payload = await body()
     const account = accountFromPayload(runtime, payload)
@@ -675,6 +730,11 @@ function buildRouter(runtime: MailHarborRuntime): Router {
               return found === undefined ? null : projectView(found)
             })(),
     }
+  })
+
+  router.post('/projects/pick-directory', async () => {
+    const path = await pickDirectory()
+    return { path }
   })
 
   router.post('/projects', async ({ body }) => {

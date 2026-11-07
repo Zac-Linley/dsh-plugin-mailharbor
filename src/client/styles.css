@@ -1496,6 +1496,64 @@
   margin: 2px 0;
 }
 
+/* ---------- conversation rows ---------- */
+
+.mailharbor-thread {
+  display: flex;
+  flex-direction: column;
+}
+
+.mailharbor-row.compact {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  padding-left: 34px;
+  background: var(--m-bg);
+}
+
+.mailharbor-row.compact .line-1 {
+  opacity: 0.85;
+}
+
+.mailharbor-row.compact .snippet {
+  -webkit-line-clamp: 1;
+}
+
+.mailharbor .to-label {
+  font-size: 10.5px;
+  color: var(--m-text-3);
+  flex: none;
+}
+
+.mailharbor .thread-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--m-bg-3);
+  color: var(--m-text-2);
+  font-size: 10.5px;
+  flex: none;
+}
+
+.mailharbor .thread-count:hover {
+  background: var(--m-accent-soft);
+  color: var(--m-text);
+}
+
+.mailharbor-account {
+  height: auto;
+  padding: 3px 8px 3px 3px;
+  border-radius: 8px;
+  gap: 8px;
+}
+
+.mailharbor-account:hover {
+  background: var(--m-hover);
+}
+
 /* ---------- mailbox sidebar ---------- */
 
 .mailharbor-side {
@@ -1648,7 +1706,7 @@
 
 .tasks-board {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   align-items: start;
 }
@@ -1706,6 +1764,11 @@
 
 .task-dot.COMPLETED {
   background: var(--m-ok);
+}
+
+.task-dot.CANCELLED {
+  background: var(--m-danger);
+  opacity: 0.7;
 }
 
 .task-column-body {
@@ -1849,6 +1912,37 @@
 .task-source:hover {
   background: var(--m-hover);
   color: var(--m-text-2);
+}
+
+@media (max-width: 1180px) {
+  .tasks-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .tasks-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- AI search ---------- */
+
+.mailharbor-ai-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--m-accent-soft);
+  color: var(--m-text-2);
+  font-size: 12px;
+}
+
+.mailharbor-ai-search.searching {
+  background: var(--m-bg-2);
+  color: var(--m-text-3);
 }
 
 /* ---------- task editor ---------- */

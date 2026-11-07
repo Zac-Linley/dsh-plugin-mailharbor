@@ -1,6 +1,7 @@
 import type {
   Account,
   AiCard,
+  AiSearchFilters,
   AiThread,
   Project,
   Task,
@@ -194,6 +195,17 @@ export const api = {
 
   aiModels: () => request<AiModels>('ai/models'),
 
+  aiSearch: (payload: {
+    accountId: string | null
+    source: 'local' | 'server'
+    mailbox: string
+    query: string
+  }) =>
+    request<Page<MessageSummary> & { ai: AiSearchFilters }>('ai/search', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   aiThread: (accountId: string | null, key: string) =>
     request<{ thread: AiThread | null }>(`ai/thread${query({ accountId: accountId ?? null, key })}`),
 
@@ -333,6 +345,8 @@ export const api = {
     }>('tasks/sync', { method: 'POST', body: JSON.stringify({ accountId }) }),
 
   projects: () => request<{ items: Project[] }>('projects'),
+
+  pickDirectory: () => request<{ path: string | null }>('projects/pick-directory', { method: 'POST' }),
 
   projectFor: (accountId: string | null, key: string) =>
     request<{ project: Project | null }>(`projects/for${query({ accountId: accountId ?? null, key })}`),

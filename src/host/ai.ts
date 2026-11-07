@@ -88,6 +88,18 @@ const COMPOSE_SYSTEM = (mode: 'draft' | 'polish' | 'shorten', language: string, 
   return `你是邮件写作助理。根据用户给出的要点写一封邮件正文。\n\n要求：\n${shared}${styleLine}`
 }
 
+const SEARCH_SYSTEM = `你是邮件搜索助手。把用户的一句话搜索需求翻译成结构化条件。
+
+只输出一个 JSON 对象，不要解释或代码块：
+{"keywords": ["关键词"], "from": "发件人或空字符串", "subject": "主题关键词或空字符串", "since": "YYYY-MM-DD 或空字符串", "before": "YYYY-MM-DD 或空字符串", "explanation": "一句中文说明你理解成了什么"}
+
+规则：
+- 今天是 {{today}}，相对时间（上周、上个月、最近三天）换算成 since/before
+- keywords 只放正文/主题里可能出现的实词，2-4 个即可
+- subject 只在用户明确说“主题是/标题是”时填写，否则留空；不要把普通关键词塞进 subject
+- 不确定的字段留空字符串，不要编造
+- 没有可用条件时 keywords 为空数组`
+
 const TASK_SYSTEM = `你是任务提取助手。从邮件中提取需要用户处理的具体事项。
 
 只输出一个 JSON 数组，不要输出解释、Markdown 或代码块标记。每个元素：
@@ -320,6 +332,14 @@ export class AiService {
     return this.complete(ASK_SYSTEM, user, signal)
   }
 
+  /** Translate a natural-language search request into structured filters. */
+  async parseSearch(query: string, signal?: AbortSignal): Promise<AiSearchFilters> {
+    const today = new Date().toISOString().slice(0, 10)
+    const system = SEARCH_SYSTEM.replace('{{today}}', today)
+    const text = await this.complete(system, `搜索需求：${query.trim()}`, signal)
+    return parseSearchJson(text)
+  }
+
   /** Extract actionable tasks from one mail. */
   async extractTasks(message: MessageDetail, signal?: AbortSignal): Promise<TaskSuggestion[]> {
     const text = await this.complete(TASK_SYSTEM, contextOf(message), signal)
@@ -426,6 +446,60 @@ export function htmlToPlain(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+}
+
+export interface AiSearchFilters {
+  keywords: string[]
+  from: string
+  subject: string
+  since: string
+  before: string
+  explanation: string
+}
+
+/** Parse the model's search JSON, tolerating code fences and prose. */
+export function parseSearchJson(text: string): AiSearchFilters {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  const empty: AiSearchFilters = {
+    keywords: [],
+    from: '',
+    subject: '',
+    since: '',
+    before: '',
+    explanation: '',
+  }
+  if (start < 0 || end <= start) return empty
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1))
+  } catch {
+    return empty
+  }
+  if (parsed === null || typeof parsed !== 'object') return empty
+  const value = parsed as Record<string, unknown>
+  const keywords = Array.isArray(value.keywords)
+    ? value.keywords
+        .map((item) => String(item).trim())
+        .filter((item) => item !== '')
+        .slice(0, 4)
+    : []
+  const date = (input: unknown): string =>
+    /^\d{4}-\d{2}-\d{2}$/.test(String(input ?? '')) ? String(input) : ''
+  return {
+    keywords,
+    from: String(value.from ?? '')
+      .trim()
+      .slice(0, 120),
+    subject: String(value.subject ?? '')
+      .trim()
+      .slice(0, 120),
+    since: date(value.since),
+    before: date(value.before),
+    explanation: String(value.explanation ?? '')
+      .trim()
+      .slice(0, 200),
+  }
 }
 
 export interface TaskSuggestion {

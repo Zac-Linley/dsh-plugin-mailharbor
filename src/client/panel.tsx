@@ -1,5 +1,6 @@
 import { createElement as h, useCallback, useEffect, useState, type ReactNode } from 'react'
 import type {
+  AiSearchFilters,
   AppState,
   BackupStatus,
   Draft,
@@ -48,6 +49,43 @@ function folderName(name: string): string {
   return FOLDER_LABELS[name] ?? name
 }
 
+function isSentFolder(mailbox: string): boolean {
+  return /(^|[/.])(sent|sent items|sent mail|已发送|发件箱)/i.test(mailbox)
+}
+
+function normalizeSubject(subject: string): string {
+  return subject
+    .replace(/^(\s*(re|fw|fwd|回复|转发)\s*[:：]\s*)+/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+interface MessageGroup {
+  key: string
+  items: MessageSummary[]
+}
+
+/** Group a page of mail by conversation title, newest first. */
+function groupMessages(items: MessageSummary[]): MessageGroup[] {
+  const map = new Map<string, MessageSummary[]>()
+  const order: string[] = []
+  for (const item of items) {
+    const key =
+      normalizeSubject(item.subject) === ''
+        ? `__${item.accountId}:${item.id}`
+        : normalizeSubject(item.subject)
+    const existing = map.get(key)
+    if (existing === undefined) {
+      map.set(key, [item])
+      order.push(key)
+    } else {
+      existing.push(item)
+    }
+  }
+  return order.map((key) => ({ key, items: map.get(key) ?? [] }))
+}
+
 function errorText(error: unknown): string {
   return error instanceof ApiError || error instanceof Error ? error.message : String(error)
 }
@@ -83,11 +121,21 @@ export function MailPanel(): ReactNode {
   const [narrow, setNarrow] = useState(() => matchesNarrow())
   const [railOpen, setRailOpen] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
+  const [sideOpen, setSideOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem('mailharbor.side') !== '0'
+    } catch {
+      return true
+    }
+  })
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([])
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
   const [projectOptions, setProjectOptions] = useState<Project[]>([])
   const [targetProject, setTargetProject] = useState('')
   const [extraction, setExtraction] = useState<{ items: TaskSuggestion[]; checked: boolean[] } | null>(null)
   const [extractBusy, setExtractBusy] = useState(false)
+  const [aiInfo, setAiInfo] = useState<AiSearchFilters | null>(null)
+  const [aiSearching, setAiSearching] = useState(false)
   const [aiRequest, setAiRequest] = useState<AiRequest | null>(null)
   const [tick, setTick] = useState(0)
 
@@ -143,6 +191,49 @@ export function MailPanel(): ReactNode {
     } catch (caught) {
       setError(errorText(caught))
     }
+  }
+
+  const runAiSearch = async (): Promise<void> => {
+    const text = query.trim()
+    if (text === '' || accountScope === null) return
+    setAiSearching(true)
+    setError('')
+    try {
+      const result = await Promise.race([
+        api.aiSearch({ accountId: accountScope, source, mailbox, query: text }),
+        new Promise<never>((_resolve, reject) => {
+          window.setTimeout(() => reject(new Error('AI 搜索超时，已改用普通搜索')), 45_000)
+        }),
+      ])
+      setPage({ items: result.items, total: result.total, offset: 0, limit: result.limit })
+      setDrafts([])
+      setAiInfo(result.ai)
+      setSearch('')
+    } catch (caught) {
+      // Fall back to the plain text search rather than leaving an empty panel.
+      setError(errorText(caught))
+      setAiInfo(null)
+      setSearch(text)
+    } finally {
+      setAiSearching(false)
+    }
+  }
+
+  const toggleSide = (): void => {
+    setSideOpen((open) => {
+      try {
+        window.localStorage.setItem('mailharbor.side', open ? '0' : '1')
+      } catch {
+        // Private mode simply does not persist the preference.
+      }
+      return !open
+    })
+  }
+
+  const toggleGroup = (key: string): void => {
+    setExpandedGroups((current) =>
+      current.includes(key) ? current.filter((entry) => entry !== key) : [...current, key],
+    )
   }
 
   const toggleSelect = (item: MessageSummary): void => {
@@ -297,6 +388,8 @@ export function MailPanel(): ReactNode {
   useEffect(() => {
     setMailbox(source === 'local' ? 'all' : 'INBOX')
     setSelected(null)
+    setAiInfo(null)
+    setSearch('')
     setLimit(state?.settings.render.listLimit ?? 40)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source])
@@ -304,6 +397,8 @@ export function MailPanel(): ReactNode {
   useEffect(() => {
     if (accountScope === 'all' && source === 'server') setSource('local')
     setSelected(null)
+    setAiInfo(null)
+    setSearch('')
   }, [accountScope, source])
 
   // Message page (or drafts list).
@@ -616,6 +711,80 @@ export function MailPanel(): ReactNode {
   const needsLogin = source === 'server' && !isAll && state.loggedIn === false
   const items = page.items
 
+  const isSent = isSentFolder(mailbox)
+  const groups = groupMessages(items)
+
+  const renderMessage = (
+    item: MessageSummary,
+    meta: { compact?: boolean; groupCount?: number; groupKey?: string; expanded?: boolean } = {},
+  ): ReactNode => {
+    const sent = isSent && item.to.length > 0
+    const first = sent ? item.to[0] : item.from
+    const who = first === undefined || first === null ? '' : first.name !== '' ? first.name : first.address
+    const extra = sent && item.to.length > 1 ? ` +${String(item.to.length - 1)}` : ''
+    const isSelected = selected?.id === item.id && selected?.accountId === item.accountId
+    return h(
+      'div',
+      {
+        key: `${item.accountId}:${item.id}`,
+        className: `mailharbor-row${item.unread ? ' unread' : ''}${isSelected ? ' selected' : ''}${selectMode ? ' selectable' : ''}${meta.compact === true ? ' compact' : ''}`,
+        role: 'button',
+        tabIndex: 0,
+        onClick: () => {
+          if (selectMode) toggleSelect(item)
+          else void openMessage(item)
+        },
+        onKeyDown: (event: { key: string; preventDefault: () => void }) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            if (selectMode) toggleSelect(item)
+            else void openMessage(item)
+          }
+        },
+      },
+      h(
+        'span',
+        { className: 'line-1' },
+        selectMode
+          ? h('input', {
+              type: 'checkbox',
+              checked: selectedKeys.includes(`${item.accountId}:${item.id}`),
+              'aria-label': '选择邮件',
+              onClick: (event: { stopPropagation: () => void }) => event.stopPropagation(),
+              onChange: () => toggleSelect(item),
+            })
+          : item.unread
+            ? h('span', { className: 'dot' })
+            : null,
+        sent ? h('span', { className: 'to-label' }, '收件人 ') : null,
+        h('span', { className: 'from' }, `${who}${extra}`),
+        item.hasAttachments ? h(Icon, { name: 'paperclip', size: 13 }) : null,
+        source === 'local' && item.backedUp === false
+          ? h('span', { className: 'badge warn' }, '未备份')
+          : null,
+        meta.groupCount !== undefined && meta.groupCount > 1
+          ? h(
+              'button',
+              {
+                className: 'thread-count',
+                title: meta.expanded === true ? '收起会话' : `展开会话（${String(meta.groupCount)} 封）`,
+                onClick: (event: { stopPropagation: () => void }) => {
+                  event.stopPropagation()
+                  toggleGroup(meta.groupKey ?? '')
+                },
+              },
+              meta.expanded === true ? '−' : String(meta.groupCount),
+            )
+          : null,
+        h('span', { className: 'date' }, shortDate(item.date)),
+      ),
+      meta.compact === true
+        ? null
+        : h('span', { className: 'line-2' }, h('span', { className: 'subject' }, item.subject)),
+      item.snippet === '' ? null : h('span', { className: 'snippet' }, item.snippet),
+    )
+  }
+
   return h(
     'div',
     { className: narrow ? 'mailharbor mailharbor-narrow' : 'mailharbor' },
@@ -623,20 +792,21 @@ export function MailPanel(): ReactNode {
       'div',
       { className: 'mailharbor-topbar' },
       h(
-        'div',
-        { className: 'mailharbor-account' },
-        h(Avatar, { email: isAll ? 'all' : (currentAccount?.email ?? '?'), size: 26 }),
+        'button',
+        {
+          className: 'mailharbor-account',
+          onClick: toggleSide,
+          title: sideOpen ? '收起账号与文件夹' : '展开账号与文件夹',
+        },
+        h(Avatar, { email: currentAccount?.email ?? '?', size: 26 }),
         h(
           'div',
           { style: { display: 'flex', flexDirection: 'column', minWidth: 0 } },
-          h('span', { className: 'name' }, isAll ? '统一收件箱' : (currentAccount?.label ?? '')),
-          h(
-            'span',
-            { className: 'small muted' },
-            isAll ? `${String(accounts.length)} 个账号` : (currentAccount?.email ?? ''),
-          ),
+          h('span', { className: 'name' }, currentAccount?.label ?? ''),
+          h('span', { className: 'small muted' }, currentAccount?.email ?? ''),
         ),
-        !isAll && state.loggedIn === false ? h('span', { className: 'badge warn' }, '未登录') : null,
+        state.loggedIn === false ? h('span', { className: 'badge warn' }, '未登录') : null,
+        h(Icon, { name: sideOpen ? 'chevronLeft' : 'chevronRight', size: 14 }),
       ),
       h(
         'div',
@@ -664,16 +834,6 @@ export function MailPanel(): ReactNode {
         ),
       ),
       h('span', { className: 'spacer' }),
-      h(
-        'button',
-        {
-          className: 'ghost icon',
-          title: '添加账号',
-          'aria-label': '添加账号',
-          onClick: () => setShowAdd(true),
-        },
-        h(Icon, { name: 'plus' }),
-      ),
       h(
         'button',
         { className: 'ghost icon', title: '刷新列表', 'aria-label': '刷新列表', onClick: refresh },
@@ -719,57 +879,39 @@ export function MailPanel(): ReactNode {
       : h(
           'div',
           { className: 'mailharbor-body', 'data-mode': narrow && selected !== null ? 'reader' : 'list' },
-          h(
-            'aside',
-            { className: 'mailharbor-side' },
-            h(
-              'button',
-              {
-                className: `mailharbor-side-item${isAll ? ' active' : ''}`,
-                onClick: () => {
-                  setAccountScope('all')
-                  setSource('local')
-                  setMailbox('all')
-                  setSelected(null)
-                },
-              },
-              h(Icon, { name: 'mail', size: 15 }),
-              h('span', { className: 'name' }, '统一收件箱'),
-              h('span', { className: 'count' }, String(accounts.length)),
-            ),
-            h('div', { className: 'mailharbor-side-section' }, '账号'),
-            accounts.map((item) =>
-              h(
-                'button',
-                {
-                  key: item.id,
-                  className: `mailharbor-side-item${!isAll && item.id === accountScope ? ' active' : ''}`,
-                  onClick: () => {
-                    void switchAccount(item.id)
-                    setSource('server')
-                    setMailbox('INBOX')
-                  },
-                },
-                h(Avatar, { email: item.email, size: 18 }),
-                h(
-                  'span',
-                  { className: 'name' },
-                  h('span', null, item.label),
-                  h('span', { className: 'sub' }, item.email),
+          sideOpen
+            ? h(
+                'aside',
+                { className: 'mailharbor-side' },
+                h('div', { className: 'mailharbor-side-section' }, '账号'),
+                accounts.map((item) =>
+                  h(
+                    'button',
+                    {
+                      key: item.id,
+                      className: `mailharbor-side-item${!isAll && item.id === accountScope ? ' active' : ''}`,
+                      onClick: () => {
+                        void switchAccount(item.id)
+                        setSource('server')
+                        setMailbox('INBOX')
+                      },
+                    },
+                    h(Avatar, { email: item.email, size: 18 }),
+                    h(
+                      'span',
+                      { className: 'name' },
+                      h('span', null, item.label),
+                      h('span', { className: 'sub' }, item.email),
+                    ),
+                    item.enabled === false ? h('span', { className: 'badge warn' }, '停用') : null,
+                  ),
                 ),
-                item.enabled === false ? h('span', { className: 'badge warn' }, '停用') : null,
-              ),
-            ),
-            isAll
-              ? null
-              : h(
+                h(
                   'div',
                   { className: 'mailharbor-side-section' },
                   source === 'server' ? '服务器文件夹' : '本地文件夹',
                 ),
-            isAll
-              ? null
-              : folders.map((folder) =>
+                folders.map((folder) =>
                   h(
                     'button',
                     {
@@ -785,7 +927,8 @@ export function MailPanel(): ReactNode {
                     folder.count > 0 ? h('span', { className: 'count' }, String(folder.count)) : null,
                   ),
                 ),
-          ),
+              )
+            : null,
           h(
             'div',
             { className: 'mailharbor-list' },
@@ -794,15 +937,23 @@ export function MailPanel(): ReactNode {
               { className: 'mailharbor-filters' },
               h('input', {
                 type: 'search',
-                placeholder: showingDrafts ? '搜索草稿' : '搜索邮件',
+                placeholder: showingDrafts
+                  ? '搜索草稿'
+                  : aiSearching
+                    ? 'AI 正在理解你的搜索…'
+                    : '搜索邮件，或描述你要找什么（AI）',
                 'aria-label': '搜索邮件',
                 value: query,
                 onChange: (event: { target: { value: string } }) => setQuery(event.target.value),
                 onKeyDown: (event: { key: string }) => {
-                  if (event.key === 'Enter') setSearch(query)
+                  if (event.key === 'Enter') {
+                    if (showingDrafts) setSearch(query)
+                    else void runAiSearch()
+                  }
                   if (event.key === 'Escape') {
                     setQuery('')
                     setSearch('')
+                    setAiInfo(null)
                   }
                 },
               }),
@@ -834,12 +985,40 @@ export function MailPanel(): ReactNode {
                       onClick: () => {
                         setQuery('')
                         setSearch('')
+                        setAiInfo(null)
                       },
                     },
                     h(Icon, { name: 'close', size: 14 }),
                   )
                 : null,
             ),
+            aiInfo === null
+              ? null
+              : h(
+                  'div',
+                  { className: 'mailharbor-ai-search' },
+                  h(Icon, { name: 'sparkles', size: 13 }),
+                  h(
+                    'span',
+                    null,
+                    aiInfo.explanation !== '' ? aiInfo.explanation : `关键词：${aiInfo.keywords.join('、')}`,
+                  ),
+                  h('span', { className: 'spacer' }),
+                  h(
+                    'button',
+                    {
+                      className: 'subtle',
+                      onClick: () => {
+                        setAiInfo(null)
+                        setTick((value) => value + 1)
+                      },
+                    },
+                    '清除',
+                  ),
+                ),
+            aiSearching
+              ? h('div', { className: 'mailharbor-ai-search searching' }, 'AI 正在理解并搜索…')
+              : null,
             selectMode
               ? h(
                   'div',
@@ -974,81 +1153,45 @@ export function MailPanel(): ReactNode {
                     ? h(
                         'div',
                         { className: 'mailharbor-empty' },
-                        h(Icon, { name: 'mail', size: 28 }),
+                        h(Icon, { name: aiInfo === null ? 'mail' : 'sparkles', size: 28 }),
                         h(
                           'div',
                           { className: 'title' },
-                          source === 'local' ? '本地备份里还没有邮件' : '服务器上没有邮件',
+                          aiInfo === null
+                            ? source === 'local'
+                              ? '本地备份里还没有邮件'
+                              : '服务器上没有邮件'
+                            : 'AI 搜索没有找到匹配邮件',
                         ),
                         h(
                           'div',
                           { className: 'small' },
-                          source === 'local'
-                            ? '点顶部「备份」把服务器邮件同步下来。'
-                            : '换一个文件夹或稍后刷新。',
+                          aiInfo === null
+                            ? source === 'local'
+                              ? '点顶部「备份」把服务器邮件同步下来。'
+                              : '换一个文件夹或稍后刷新。'
+                            : '换个说法，或直接输入关键词后按回车。',
                         ),
                       )
-                    : items.map((item) =>
-                        h(
-                          'div',
-                          {
-                            key: `${item.accountId}:${item.id}`,
-                            className: `mailharbor-row${item.unread ? ' unread' : ''}${selected?.id === item.id && selected?.accountId === item.accountId ? ' selected' : ''}${selectMode ? ' selectable' : ''}`,
-                            role: 'button',
-                            tabIndex: 0,
-                            onClick: () => {
-                              if (selectMode) toggleSelect(item)
-                              else void openMessage(item)
-                            },
-                            onKeyDown: (event: { key: string; preventDefault: () => void }) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault()
-                                if (selectMode) toggleSelect(item)
-                                else void openMessage(item)
-                              }
-                            },
-                          },
-                          h(
-                            'span',
-                            { className: 'line-1' },
-                            selectMode
-                              ? h('input', {
-                                  type: 'checkbox',
-                                  checked: selectedKeys.includes(`${item.accountId}:${item.id}`),
-                                  'aria-label': '选择邮件',
-                                  onClick: (event: { stopPropagation: () => void }) =>
-                                    event.stopPropagation(),
-                                  onChange: () => toggleSelect(item),
-                                })
-                              : item.unread
-                                ? h('span', { className: 'dot' })
-                                : null,
-                            h(
-                              'span',
-                              { className: 'from' },
-                              item.from.name !== '' ? item.from.name : item.from.address,
-                            ),
-                            item.hasAttachments ? h(Icon, { name: 'paperclip', size: 13 }) : null,
-                            isAll
-                              ? h(
-                                  'span',
-                                  { className: 'badge' },
-                                  accounts.find((entry) => entry.id === item.accountId)?.label ?? '',
-                                )
+                    : selectMode
+                      ? items.map((item) => renderMessage(item))
+                      : groups.map((group) => {
+                          const latest = group.items[0]
+                          if (latest === undefined) return null
+                          const expanded = expandedGroups.includes(group.key)
+                          return h(
+                            'div',
+                            { className: 'mailharbor-thread', key: group.key },
+                            renderMessage(latest, {
+                              groupCount: group.items.length,
+                              groupKey: group.key,
+                              expanded,
+                            }),
+                            expanded
+                              ? group.items.slice(1).map((item) => renderMessage(item, { compact: true }))
                               : null,
-                            source === 'local' && item.backedUp === false
-                              ? h('span', { className: 'badge warn' }, '未备份')
-                              : null,
-                            h('span', { className: 'date' }, shortDate(item.date)),
-                          ),
-                          h(
-                            'span',
-                            { className: 'line-2' },
-                            h('span', { className: 'subject' }, item.subject),
-                          ),
-                          item.snippet === '' ? null : h('span', { className: 'snippet' }, item.snippet),
-                        ),
-                      ),
+                          )
+                        }),
             ),
             !showingDrafts && items.length > 0
               ? h(
@@ -1056,7 +1199,7 @@ export function MailPanel(): ReactNode {
                   { className: 'mailharbor-list-foot' },
                   h('span', null, `${String(items.length)} / ${String(page.total)} 封`),
                   h('span', { className: 'spacer' }),
-                  page.total > items.length
+                  page.total > items.length && aiInfo === null
                     ? h(
                         'button',
                         { className: 'subtle', onClick: () => setLimit((current) => current + 40) },

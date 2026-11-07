@@ -580,10 +580,31 @@ export function AiRail({
                   'div',
                   { className: 'mailharbor-field' },
                   h('label', null, '项目目录（默认可在设置里改）'),
-                  h('input', {
-                    value: projectRoot,
-                    onChange: (event: { target: { value: string } }) => setProjectRoot(event.target.value),
-                  }),
+                  h(
+                    'div',
+                    { style: { display: 'flex', gap: '6px' } },
+                    h('input', {
+                      value: projectRoot,
+                      onChange: (event: { target: { value: string } }) => setProjectRoot(event.target.value),
+                    }),
+                    h(
+                      'button',
+                      {
+                        className: 'ghost',
+                        title: '从文件管理器选择',
+                        onClick: () => {
+                          void api
+                            .pickDirectory()
+                            .then((result) => {
+                              if (result.path !== null) setProjectRoot(result.path)
+                            })
+                            .catch((caught: unknown) => setProjectWarnings([errorText(caught)]))
+                        },
+                      },
+                      h(Icon, { name: 'folder', size: 13 }),
+                      '浏览…',
+                    ),
+                  ),
                 ),
                 h(
                   'p',

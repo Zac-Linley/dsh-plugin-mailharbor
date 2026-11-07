@@ -299,6 +299,15 @@ export interface TaskSuggestion {
   notes: string
 }
 
+export interface AiSearchFilters {
+  keywords: string[]
+  from: string
+  subject: string
+  since: string
+  before: string
+  explanation: string
+}
+
 export interface ApiError {
   error: string
   code?: string
