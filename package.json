@@ -1,6 +1,6 @@
 {
   "name": "@zaclinley/dsh-mailharbor",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "MailHarbor: a multi-account IMAP/SMTP mail workspace for DeepSeek Harness with local backup, AI search and compose, CalDAV tasks and reports.",
   "keywords": [
     "dsh",
