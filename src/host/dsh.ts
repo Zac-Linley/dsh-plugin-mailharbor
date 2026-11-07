@@ -86,6 +86,8 @@ export interface DshContext {
   get?: (name: string) => unknown
   /** Project grouping service, when the composition mounts it. */
   workspaceRegistry?: DshWorkspaceRegistry
+  /** Run a callback once these optional services are available. */
+  inject?: (deps: string[], callback: (scope: DshContext) => void) => unknown
   /** Session service, when the composition mounts it. */
   sessions?: DshSessions
   effect?: (effect: () => (() => void) | void, label?: string) => void

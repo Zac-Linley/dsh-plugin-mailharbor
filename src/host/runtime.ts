@@ -52,7 +52,7 @@ export class MailHarborRuntime {
   private readonly aiStores = new Map<string, SignatureEntry<AiThreadStore>>()
   private readonly backups = new Map<string, BackupJob>()
   private readonly llmProvider: () => DshLlm | undefined
-  readonly workspaceRegistry: DshWorkspaceRegistry | undefined
+  private readonly workspaceRegistryProvider: () => DshWorkspaceRegistry | undefined
   readonly sessions: DshSessions | undefined
   private aiService: AiService | null = null
   private projectStore: ProjectStore | null = null
@@ -63,15 +63,19 @@ export class MailHarborRuntime {
     options: {
       credentials?: CredentialManager
       llm?: () => DshLlm | undefined
-      workspaceRegistry?: DshWorkspaceRegistry
+      workspaceRegistry?: () => DshWorkspaceRegistry | undefined
       sessions?: DshSessions
     } = {},
   ) {
     this.config = loadConfig()
     this.credentials = options.credentials ?? new CredentialManager()
     this.llmProvider = options.llm ?? (() => undefined)
-    this.workspaceRegistry = options.workspaceRegistry
+    this.workspaceRegistryProvider = options.workspaceRegistry ?? (() => undefined)
     this.sessions = options.sessions
+  }
+
+  get workspaceRegistry(): DshWorkspaceRegistry | undefined {
+    return this.workspaceRegistryProvider()
   }
 
   projects(): ProjectStore {

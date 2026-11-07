@@ -1,5 +1,5 @@
 import { createApiHandler } from './api.js'
-import type { DshContext, DshLlm } from './dsh.js'
+import type { DshContext, DshLlm, DshWorkspaceRegistry } from './dsh.js'
 import { MailHarborRuntime } from './runtime.js'
 import { registerMailTools } from './tools.js'
 
@@ -30,8 +30,21 @@ function optionalService<T>(ctx: DshContext, name: string): T | undefined {
  * tools when the composition provides the tool registry.
  */
 export function apply(ctx: DshContext): void {
+  let registry: DshWorkspaceRegistry | undefined
+  // The registry is optional: wait for it in the background instead of
+  // blocking the whole plugin on compositions that do not mount workspaces.
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['workspaceRegistry'], (scope: DshContext) => {
+      try {
+        registry = scope.workspaceRegistry
+      } catch {
+        registry = undefined
+      }
+    })
+  }
+
   const runtime = new MailHarborRuntime({
-    workspaceRegistry: optionalService(ctx, 'workspaceRegistry'),
+    workspaceRegistry: () => registry,
     sessions: optionalService(ctx, 'sessions'),
     llm: () => {
       if (typeof ctx.get !== 'function') return undefined
