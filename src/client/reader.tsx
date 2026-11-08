@@ -62,6 +62,7 @@ export function Reader({
   onReply,
   onAiAction,
   onExtractTasks,
+  onAddToProject,
   onClose,
 }: {
   detail: MessageDetail
@@ -71,6 +72,7 @@ export function Reader({
   onReply: (mode: 'reply' | 'replyAll' | 'forward') => void
   onAiAction: (action: ReaderAiAction) => void
   onExtractTasks: () => void
+  onAddToProject: () => void
   onClose?: () => void
 }): ReactNode {
   const [plain, setPlain] = useState(false)
@@ -183,6 +185,12 @@ export function Reader({
           { className: 'ghost', onClick: onExtractTasks },
           h(Icon, { name: 'checklist', size: 14 }),
           '提取任务',
+        ),
+        h(
+          'button',
+          { className: 'ghost', onClick: onAddToProject },
+          h(Icon, { name: 'folder', size: 14 }),
+          '加入项目',
         ),
         h('span', { className: 'spacer' }),
         html

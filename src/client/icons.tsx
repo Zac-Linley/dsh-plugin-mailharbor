@@ -49,6 +49,12 @@ const PATHS: Record<string, ReactNode> = {
     h('path', { d: 'M10 11v6M14 11v6' }),
   ),
   send: h('path', { d: 'm4 4 17 8-17 8 3.6-8z M7.6 12H21' }),
+  list: h(
+    'g',
+    null,
+    h('path', { d: 'M8 6h12M8 12h12M8 18h12' }),
+    h('path', { d: 'M4 6h.01M4 12h.01M4 18h.01' }),
+  ),
   folder: h('path', {
     d: 'M3.5 6.5A1.5 1.5 0 0 1 5 5h4l2 2.5h8A1.5 1.5 0 0 1 20.5 9v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z',
   }),

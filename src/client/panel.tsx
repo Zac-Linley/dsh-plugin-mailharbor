@@ -135,6 +135,16 @@ export function MailPanel(): ReactNode {
   const [extraction, setExtraction] = useState<{ items: TaskSuggestion[]; checked: boolean[] } | null>(null)
   const [extractBusy, setExtractBusy] = useState(false)
   const [aiInfo, setAiInfo] = useState<AiSearchFilters | null>(null)
+  const [projectPicker, setProjectPicker] = useState<{
+    accountId: string
+    key: string
+    subject: string
+    date: string
+  } | null>(null)
+  const [pickerProjects, setPickerProjects] = useState<Project[]>([])
+  const [pickerTarget, setPickerTarget] = useState('')
+  const [pickerNewName, setPickerNewName] = useState('')
+  const [pickerBusy, setPickerBusy] = useState(false)
   const [aiSearching, setAiSearching] = useState(false)
   const [aiRequest, setAiRequest] = useState<AiRequest | null>(null)
   const [tick, setTick] = useState(0)
@@ -219,6 +229,69 @@ export function MailPanel(): ReactNode {
     }
   }
 
+  const openProjectPicker = (): void => {
+    if (selected === null) return
+    const key = keyOf(selected)
+    if (!key.startsWith('mid:') && !key.startsWith('local:')) {
+      setError('这封邮件缺少 Message-ID，无法关联到项目')
+      return
+    }
+    setProjectPicker({
+      accountId: selected.accountId,
+      key,
+      subject: selected.subject,
+      date: selected.date,
+    })
+    setPickerNewName(selected.subject.replace(/^(re|fwd):\s*/i, '').slice(0, 80))
+    setPickerTarget('')
+    void api
+      .projects()
+      .then((list) => {
+        setPickerProjects(list.items)
+        setPickerTarget(list.items[0]?.id ?? '')
+      })
+      .catch((caught: unknown) => setError(errorText(caught)))
+  }
+
+  const saveProjectPick = async (): Promise<void> => {
+    if (projectPicker === null) return
+    setPickerBusy(true)
+    setError('')
+    try {
+      if (pickerTarget !== '') {
+        await api.addProjectMessage(pickerTarget, {
+          accountId: projectPicker.accountId,
+          key: projectPicker.key,
+          subject: projectPicker.subject,
+          date: projectPicker.date,
+        })
+        notice('已加入项目')
+      } else {
+        const name = pickerNewName.trim()
+        if (name === '') throw new Error('先选择一个项目，或填写新项目名称')
+        const settings = await api.settings()
+        const created = await api.createProject({
+          accountId: projectPicker.accountId,
+          name,
+          root: settings.projects.root,
+          conversation: `（从邮件加入）\n\n${projectPicker.subject}`,
+          message: {
+            key: projectPicker.key,
+            subject: projectPicker.subject,
+            date: projectPicker.date,
+          },
+        })
+        notice(`项目已创建：${created.project.path}`)
+      }
+      setProjectPicker(null)
+      setTick((value) => value + 1)
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setPickerBusy(false)
+    }
+  }
+
   const toggleSide = (): void => {
     setSideOpen((open) => {
       try {
@@ -248,8 +321,13 @@ export function MailPanel(): ReactNode {
       setError('先创建一个项目')
       return
     }
-    const chosen = items.filter((item) => selectedKeys.includes(`${item.accountId}:${item.id}`))
-    if (chosen.length === 0) return
+    const chosen = items
+      .filter((item) => selectedKeys.includes(`${item.accountId}:${item.id}`))
+      .filter((item) => item.messageId !== undefined && item.messageId !== '')
+    if (chosen.length === 0) {
+      setError('所选邮件缺少 Message-ID，无法关联到项目')
+      return
+    }
     try {
       for (const item of chosen) {
         await api.addProjectMessage(targetProject, {
@@ -957,25 +1035,23 @@ export function MailPanel(): ReactNode {
                   }
                 },
               }),
-              source === 'local'
-                ? h(
-                    'button',
-                    {
-                      className: selectMode ? 'ghost active' : 'ghost',
-                      title: '选择多封邮件加入项目',
-                      onClick: () => {
-                        if (selectMode) {
-                          setSelectMode(false)
-                          setSelectedKeys([])
-                        } else {
-                          void enterSelect()
-                        }
-                      },
-                    },
-                    Icon({ name: 'checklist', size: 14 }),
-                    '选择',
-                  )
-                : null,
+              h(
+                'button',
+                {
+                  className: selectMode ? 'ghost active' : 'ghost',
+                  title: '选择多封邮件加入项目',
+                  onClick: () => {
+                    if (selectMode) {
+                      setSelectMode(false)
+                      setSelectedKeys([])
+                    } else {
+                      void enterSelect()
+                    }
+                  },
+                },
+                Icon({ name: 'list', size: 14 }),
+                '选择',
+              ),
               query !== search || search !== ''
                 ? h(
                     'button',
@@ -1238,6 +1314,7 @@ export function MailPanel(): ReactNode {
                   onReply: (mode) => startCompose(mode),
                   onAiAction: requestAi,
                   onExtractTasks: () => void extractTasks(),
+                  onAddToProject: openProjectPicker,
                   onClose: narrow ? () => setSelected(null) : undefined,
                 }),
           ),
@@ -1290,6 +1367,70 @@ export function MailPanel(): ReactNode {
             'div',
             { className: 'mailharbor-log' },
             backup.output.length === 0 ? '（等待输出…）' : backup.output.join('\n'),
+          ),
+        )
+      : null,
+    projectPicker !== null
+      ? h(
+          Modal,
+          {
+            title: '加入项目',
+            onClose: () => setProjectPicker(null),
+            footer: h(
+              'div',
+              { style: { display: 'flex', gap: '8px', width: '100%', alignItems: 'center' } },
+              h('span', { className: 'small muted' }, '把这封邮件关联到一个项目'),
+              h('span', { className: 'spacer' }),
+              h('button', { className: 'ghost', onClick: () => setProjectPicker(null) }, '取消'),
+              h(
+                'button',
+                { className: 'primary', disabled: pickerBusy, onClick: () => void saveProjectPick() },
+                pickerBusy ? '保存中…' : '保存',
+              ),
+            ),
+          },
+          h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+            pickerProjects.length === 0
+              ? h('p', { className: 'small muted' }, '还没有项目，在下面新建一个。')
+              : h(
+                  'div',
+                  { className: 'mailharbor-field' },
+                  h('label', null, '选择已有项目'),
+                  h(
+                    'select',
+                    {
+                      value: pickerTarget,
+                      onChange: (event: { target: { value: string } }) => setPickerTarget(event.target.value),
+                    },
+                    h('option', { value: '' }, '不加入已有项目'),
+                    pickerProjects.map((project) =>
+                      h(
+                        'option',
+                        { key: project.id, value: project.id },
+                        `${project.name} · ${project.messages.length} 封`,
+                      ),
+                    ),
+                  ),
+                ),
+            h(
+              'div',
+              { className: 'mailharbor-field' },
+              h('label', null, pickerProjects.length === 0 ? '新建项目' : '或新建项目'),
+              h('input', {
+                value: pickerNewName,
+                placeholder: '项目名称',
+                onChange: (event: { target: { value: string } }) => setPickerNewName(event.target.value),
+              }),
+            ),
+            h(
+              'p',
+              { className: 'small muted' },
+              pickerTarget === ''
+                ? '保存时会用上面的名称创建项目，并把当前邮件加进去。'
+                : '保存后这封邮件会出现在项目的来源邮件列表里。',
+            ),
           ),
         )
       : null,
