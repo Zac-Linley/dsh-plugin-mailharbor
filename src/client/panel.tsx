@@ -145,6 +145,12 @@ export function MailPanel(): ReactNode {
   const [pickerTarget, setPickerTarget] = useState('')
   const [pickerNewName, setPickerNewName] = useState('')
   const [pickerBusy, setPickerBusy] = useState(false)
+  const [pickerMode, setPickerMode] = useState<'existing' | 'new'>('existing')
+  const [managerOpen, setManagerOpen] = useState(false)
+  const [managerProjects, setManagerProjects] = useState<Project[]>([])
+  const [managerRename, setManagerRename] = useState<{ id: string; name: string } | null>(null)
+  const [managerConfirm, setManagerConfirm] = useState('')
+  const [managerBusy, setManagerBusy] = useState(false)
   const [aiSearching, setAiSearching] = useState(false)
   const [aiRequest, setAiRequest] = useState<AiRequest | null>(null)
   const [tick, setTick] = useState(0)
@@ -244,11 +250,12 @@ export function MailPanel(): ReactNode {
     })
     setPickerNewName(selected.subject.replace(/^(re|fwd):\s*/i, '').slice(0, 80))
     setPickerTarget('')
-    void api
-      .projects()
-      .then((list) => {
+    void Promise.all([api.projects(), api.projectFor(selected.accountId, key)])
+      .then(([list, linked]) => {
         setPickerProjects(list.items)
-        setPickerTarget(list.items[0]?.id ?? '')
+        const current = linked.project?.id ?? list.items[0]?.id ?? ''
+        setPickerTarget(current)
+        setPickerMode(current === '' ? 'new' : 'existing')
       })
       .catch((caught: unknown) => setError(errorText(caught)))
   }
@@ -258,7 +265,7 @@ export function MailPanel(): ReactNode {
     setPickerBusy(true)
     setError('')
     try {
-      if (pickerTarget !== '') {
+      if (pickerMode === 'existing' && pickerTarget !== '') {
         await api.addProjectMessage(pickerTarget, {
           accountId: projectPicker.accountId,
           key: projectPicker.key,
@@ -268,7 +275,7 @@ export function MailPanel(): ReactNode {
         notice('已加入项目')
       } else {
         const name = pickerNewName.trim()
-        if (name === '') throw new Error('先选择一个项目，或填写新项目名称')
+        if (name === '') throw new Error('请填写新项目名称')
         const settings = await api.settings()
         const created = await api.createProject({
           accountId: projectPicker.accountId,
@@ -289,6 +296,33 @@ export function MailPanel(): ReactNode {
       setError(errorText(caught))
     } finally {
       setPickerBusy(false)
+    }
+  }
+
+  const openManager = (): void => {
+    setManagerOpen(true)
+    setManagerConfirm('')
+    setManagerRename(null)
+    void api
+      .projects()
+      .then((list) => setManagerProjects(list.items))
+      .catch((caught: unknown) => setError(errorText(caught)))
+  }
+
+  const managerAction = async (operation: () => Promise<unknown>): Promise<void> => {
+    setManagerBusy(true)
+    setError('')
+    try {
+      await operation()
+      const list = await api.projects()
+      setManagerProjects(list.items)
+      setManagerRename(null)
+      setManagerConfirm('')
+      setTick((value) => value + 1)
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setManagerBusy(false)
     }
   }
 
@@ -929,6 +963,12 @@ export function MailPanel(): ReactNode {
       ),
       h(
         'button',
+        { className: 'ghost', onClick: openManager, title: '项目管理' },
+        h(Icon, { name: 'folder' }),
+        '项目',
+      ),
+      h(
+        'button',
         {
           className: railOpen ? 'ghost active' : 'ghost',
           onClick: () => setRailOpen(!railOpen),
@@ -1370,6 +1410,135 @@ export function MailPanel(): ReactNode {
           ),
         )
       : null,
+    managerOpen
+      ? h(
+          Modal,
+          {
+            title: '项目管理',
+            onClose: () => setManagerOpen(false),
+            wide: true,
+            footer: h(
+              'div',
+              { className: 'task-editor-foot' },
+              h(
+                'span',
+                { className: 'small muted' },
+                '删除只移除 MailHarbor 的项目记录，文件夹与 DSH 工作空间会保留。',
+              ),
+              h('span', { className: 'spacer' }),
+              h('button', { className: 'ghost', onClick: () => setManagerOpen(false) }, '关闭'),
+            ),
+          },
+          managerProjects.length === 0
+            ? h(
+                'p',
+                { className: 'small muted' },
+                '还没有项目。可以从一封邮件的「加入项目 → 新建项目」开始。',
+              )
+            : h(
+                'div',
+                { className: 'project-manager' },
+                managerProjects.map((project) =>
+                  h(
+                    'div',
+                    { key: project.id, className: 'project-manager-row' },
+                    h(
+                      'div',
+                      { className: 'project-manager-main' },
+                      managerRename?.id === project.id
+                        ? h('input', {
+                            value: managerRename.name,
+                            autoFocus: true,
+                            onChange: (event: { target: { value: string } }) =>
+                              setManagerRename({ id: project.id, name: event.target.value }),
+                            onKeyDown: (event: { key: string }) => {
+                              if (event.key === 'Enter' && managerRename.name.trim() !== '') {
+                                void managerAction(() =>
+                                  api.updateProject(project.id, managerRename.name.trim()),
+                                )
+                              }
+                            },
+                          })
+                        : h('strong', null, project.name),
+                      h(
+                        'span',
+                        { className: 'small muted' },
+                        `${String(project.messages.length)} 封来源邮件 · ${project.path}`,
+                      ),
+                    ),
+                    h(
+                      'div',
+                      { className: 'project-manager-actions' },
+                      managerRename?.id === project.id
+                        ? h(
+                            'button',
+                            {
+                              className: 'primary small',
+                              disabled: managerBusy || managerRename.name.trim() === '',
+                              onClick: () =>
+                                void managerAction(() =>
+                                  api.updateProject(project.id, managerRename.name.trim()),
+                                ),
+                            },
+                            '保存名称',
+                          )
+                        : h(
+                            'button',
+                            {
+                              className: 'ghost small',
+                              onClick: () => setManagerRename({ id: project.id, name: project.name }),
+                            },
+                            '重命名',
+                          ),
+                      h(
+                        'button',
+                        {
+                          className: 'ghost small',
+                          onClick: () => {
+                            void api
+                              .openProject(project.id)
+                              .catch((caught: unknown) => setError(errorText(caught)))
+                          },
+                        },
+                        '打开文件夹',
+                      ),
+                      managerConfirm === project.id
+                        ? h(
+                            'span',
+                            { style: { display: 'inline-flex', gap: '6px' } },
+                            h(
+                              'button',
+                              {
+                                className: 'ghost small danger',
+                                disabled: managerBusy,
+                                onClick: () =>
+                                  void managerAction(async () => {
+                                    await api.deleteProject(project.id)
+                                    notice('项目已删除（文件夹保留）')
+                                  }),
+                              },
+                              '确认删除',
+                            ),
+                            h(
+                              'button',
+                              { className: 'ghost small', onClick: () => setManagerConfirm('') },
+                              '取消',
+                            ),
+                          )
+                        : h(
+                            'button',
+                            {
+                              className: 'ghost small danger',
+                              onClick: () => setManagerConfirm(project.id),
+                            },
+                            '删除',
+                          ),
+                    ),
+                  ),
+                ),
+              ),
+        )
+      : null,
     projectPicker !== null
       ? h(
           Modal,
@@ -1379,32 +1548,51 @@ export function MailPanel(): ReactNode {
             footer: h(
               'div',
               { style: { display: 'flex', gap: '8px', width: '100%', alignItems: 'center' } },
-              h('span', { className: 'small muted' }, '把这封邮件关联到一个项目'),
+              h('button', { className: 'subtle', onClick: openManager }, '管理项目…'),
               h('span', { className: 'spacer' }),
               h('button', { className: 'ghost', onClick: () => setProjectPicker(null) }, '取消'),
               h(
                 'button',
                 { className: 'primary', disabled: pickerBusy, onClick: () => void saveProjectPick() },
-                pickerBusy ? '保存中…' : '保存',
+                pickerBusy ? '保存中…' : pickerMode === 'new' ? '创建并加入' : '加入项目',
               ),
             ),
           },
           h(
             'div',
-            { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
-            pickerProjects.length === 0
-              ? h('p', { className: 'small muted' }, '还没有项目，在下面新建一个。')
-              : h(
+            { style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
+            h(
+              'div',
+              { className: 'mailharbor-segment', role: 'tablist' },
+              h(
+                'button',
+                {
+                  className: pickerMode === 'existing' ? 'active' : '',
+                  disabled: pickerProjects.length === 0,
+                  onClick: () => setPickerMode('existing'),
+                },
+                '加入已有项目',
+              ),
+              h(
+                'button',
+                {
+                  className: pickerMode === 'new' ? 'active' : '',
+                  onClick: () => setPickerMode('new'),
+                },
+                '新建项目',
+              ),
+            ),
+            pickerMode === 'existing'
+              ? h(
                   'div',
                   { className: 'mailharbor-field' },
-                  h('label', null, '选择已有项目'),
+                  h('label', null, '项目'),
                   h(
                     'select',
                     {
                       value: pickerTarget,
                       onChange: (event: { target: { value: string } }) => setPickerTarget(event.target.value),
                     },
-                    h('option', { value: '' }, '不加入已有项目'),
                     pickerProjects.map((project) =>
                       h(
                         'option',
@@ -1413,24 +1601,24 @@ export function MailPanel(): ReactNode {
                       ),
                     ),
                   ),
+                  h('p', { className: 'small muted' }, '只会把当前邮件加入这个项目，不会新建项目。'),
+                )
+              : h(
+                  'div',
+                  { className: 'mailharbor-field' },
+                  h('label', null, '新项目名称'),
+                  h('input', {
+                    value: pickerNewName,
+                    placeholder: '项目名称',
+                    onChange: (event: { target: { value: string } }) => setPickerNewName(event.target.value),
+                  }),
+                  h(
+                    'p',
+                    { className: 'small muted' },
+                    '会创建新的项目文件夹，并把当前邮件作为第一封来源邮件。',
+                  ),
                 ),
-            h(
-              'div',
-              { className: 'mailharbor-field' },
-              h('label', null, pickerProjects.length === 0 ? '新建项目' : '或新建项目'),
-              h('input', {
-                value: pickerNewName,
-                placeholder: '项目名称',
-                onChange: (event: { target: { value: string } }) => setPickerNewName(event.target.value),
-              }),
-            ),
-            h(
-              'p',
-              { className: 'small muted' },
-              pickerTarget === ''
-                ? '保存时会用上面的名称创建项目，并把当前邮件加进去。'
-                : '保存后这封邮件会出现在项目的来源邮件列表里。',
-            ),
+            h('p', { className: 'small muted' }, `来源邮件：${projectPicker.subject}`),
           ),
         )
       : null,

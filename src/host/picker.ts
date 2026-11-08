@@ -74,3 +74,26 @@ export async function pickDirectory(defaultPath?: string): Promise<string | null
     throw new Error('当前环境无法打开目录选择器，请手动输入路径')
   }
 }
+
+export async function openPath(path: string): Promise<void> {
+  try {
+    const require = createRequire(import.meta.url)
+    const electron = require('electron') as { shell?: { openPath(target: string): Promise<string> } }
+    if (electron.shell !== undefined) {
+      const error = await electron.shell.openPath(path)
+      if (error !== '') throw new Error(error)
+      return
+    }
+  } catch {
+    // Fall through to the platform opener.
+  }
+  if (process.platform === 'darwin') {
+    await run('open', [path])
+    return
+  }
+  if (process.platform === 'win32') {
+    await run('explorer', [path])
+    return
+  }
+  await run('xdg-open', [path])
+}

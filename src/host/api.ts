@@ -26,7 +26,7 @@ import {
   type MailHarborConfig,
 } from './config.js'
 import { resolveUserPath } from './paths.js'
-import { pickDirectory } from './picker.js'
+import { openPath, pickDirectory } from './picker.js'
 import { BackupEngine } from './backup.js'
 import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestContext } from './http.js'
 import { normalizeTranslated, summaryBlocks, textToHtml } from './ai.js'
@@ -768,6 +768,40 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       sessions: runtime.sessions,
     })
     return { project: projectView(result.project), warnings: result.warnings }
+  })
+
+  router.patch('/projects/:id', async ({ params, body }) => {
+    const payload = await body()
+    const name = String(payload.name ?? '').trim()
+    if (name === '') throw new HttpError(400, '项目名称不能为空')
+    const project = runtime.projects().update(String(params.id ?? ''), { name })
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    return { project: projectView(project) }
+  })
+
+  router.delete('/projects/:id', ({ params }) => {
+    const id = String(params.id ?? '')
+    const project = runtime.projects().get(id)
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    const removed = runtime.projects().remove(id)
+    const unlinked = runtime.tasks().clearProject(id)
+    return {
+      ok: removed,
+      path: project.path,
+      unlinkedTasks: unlinked,
+      workspaceKept: project.workspaceId !== '',
+    }
+  })
+
+  router.post('/projects/:id/open', async ({ params }) => {
+    const project = runtime.projects().get(String(params.id ?? ''))
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    try {
+      await openPath(project.path)
+      return { path: project.path }
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : String(error))
+    }
   })
 
   router.post('/projects/:id/messages', async ({ params, body }) => {

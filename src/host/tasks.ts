@@ -262,6 +262,14 @@ export class TaskStore {
     return task
   }
 
+  /** Unlink tasks when their project is deleted. */
+  clearProject(projectId: string): number {
+    const result = this.open()
+      .prepare('UPDATE tasks SET project_id = NULL, dirty = 1, updated_at = ? WHERE project_id = ?')
+      .run(now(), projectId)
+    return Number(result.changes)
+  }
+
   remove(id: string): boolean {
     const current = this.get(id)
     if (current === undefined) return false

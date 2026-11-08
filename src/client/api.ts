@@ -348,6 +348,21 @@ export const api = {
 
   pickDirectory: () => request<{ path: string | null }>('projects/pick-directory', { method: 'POST' }),
 
+  updateProject: (id: string, name: string) =>
+    request<{ project: Project }>(`projects/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteProject: (id: string) =>
+    request<{ ok: boolean; path: string; unlinkedTasks: number; workspaceKept: boolean }>(
+      `projects/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    ),
+
+  openProject: (id: string) =>
+    request<{ path: string }>(`projects/${encodeURIComponent(id)}/open`, { method: 'POST' }),
+
   projectFor: (accountId: string | null, key: string) =>
     request<{ project: Project | null }>(`projects/for${query({ accountId: accountId ?? null, key })}`),
 

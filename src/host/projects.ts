@@ -117,6 +117,15 @@ export class ProjectStore {
     return project
   }
 
+  remove(id: string): boolean {
+    const data = this.load()
+    const index = data.projects.findIndex((project) => project.id === id)
+    if (index < 0) return false
+    data.projects.splice(index, 1)
+    this.flush()
+    return true
+  }
+
   addThread(id: string, thread: ProjectThread): ProjectRecord | undefined {
     const project = this.get(id)
     if (project === undefined) return undefined

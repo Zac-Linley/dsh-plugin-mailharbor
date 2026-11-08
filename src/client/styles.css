@@ -2039,3 +2039,51 @@
   gap: 10px;
   width: 100%;
 }
+
+/* ---------- project manager ---------- */
+
+.project-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-manager-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--m-line-soft);
+  border-radius: 10px;
+  background: var(--m-bg-1);
+}
+
+.project-manager-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.project-manager-main strong {
+  font-size: 13px;
+}
+
+.project-manager-main .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-manager-main input {
+  width: 100%;
+  height: 28px;
+}
+
+.project-manager-actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+  align-items: center;
+}
