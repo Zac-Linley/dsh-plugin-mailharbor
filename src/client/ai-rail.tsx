@@ -57,10 +57,12 @@ function summaryBlocks(text: string): { title: string; body: string }[] {
   return blocks
 }
 
-function suggestionsOf(summary: string): string {
+function suggestionsOf(summary: string): string | null {
   const match = /建议回复要点[：:]?\s*\n([\s\S]*)$/.exec(summary)
-  if (match === null) return '根据这封邮件写一封得体的回复。'
-  return `根据这些建议写回复：\n${(match[1] ?? '').trim()}`
+  if (match === null) return null
+  const body = (match[1] ?? '').trim()
+  if (body === '') return null
+  return `根据这些建议写回复：\n${body}`
 }
 
 const KIND_LABEL: Record<Kind, string> = {
@@ -498,15 +500,20 @@ export function AiRail({
             'div',
             { className: 'mailharbor-ai-card-actions' },
             card.kind === 'summary'
-              ? h(
-                  'button',
-                  {
-                    className: 'ghost',
-                    disabled: generating !== null,
-                    onClick: () => void generate('reply', { instruction: suggestionsOf(card.output) }),
-                  },
-                  '用这些要点回复',
-                )
+              ? (() => {
+                  const suggestion = suggestionsOf(card.output)
+                  return suggestion === null
+                    ? h('span', { className: 'small muted' }, '未建议回复')
+                    : h(
+                        'button',
+                        {
+                          className: 'ghost',
+                          disabled: generating !== null,
+                          onClick: () => void generate('reply', { instruction: suggestion }),
+                        },
+                        '用这些要点回复',
+                      )
+                })()
               : null,
             card.kind === 'reply' || card.kind === 'translate'
               ? h(

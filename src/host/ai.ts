@@ -45,6 +45,11 @@ const SUMMARY_SYSTEM = `你是邮件助理，服务于中文用户。请用简�
 建议回复要点
 （1-3 条中文要点）
 
+身份规则（用户身份会写在邮件信息里）：
+- 如果用户是「仅抄送」或「不在收件人/抄送列表」：需要你做什么只写「你只是被抄送，通常无需操作」这类结论；不要输出「建议回复要点」这一段
+- 如果用户是「发件人」：需要你做什么写「这是你发出的邮件，无需操作」；不要输出「建议回复要点」这一段
+- 只有「直接收件人」且邮件确实要求行动时，才给「建议回复要点」
+
 只依据邮件内容，不要编造，不要输出思考过程。`
 
 const REPLY_SYSTEM = (
@@ -161,12 +166,37 @@ function bodyText(message: MessageDetail): string {
     .trim()
 }
 
-function contextOf(message: MessageDetail): string {
+type MailRole = 'to' | 'cc' | 'sender' | 'other' | 'unknown'
+
+function roleOf(message: MessageDetail, email?: string): MailRole {
+  const target = String(email ?? '')
+    .trim()
+    .toLowerCase()
+  if (target === '') return 'unknown'
+  const has = (list: { address: string }[]): boolean =>
+    list.some((item) => item.address.trim().toLowerCase() === target)
+  if (has(message.to)) return 'to'
+  if (has(message.cc)) return 'cc'
+  if (message.from.address.trim().toLowerCase() === target) return 'sender'
+  return 'other'
+}
+
+const ROLE_TEXT: Record<MailRole, string> = {
+  to: '直接收件人',
+  cc: '仅抄送（不在收件人里）',
+  sender: '发件人（你发出的邮件）',
+  other: '不在收件人/抄送列表（可能是邮件列表或密送）',
+  unknown: '未知',
+}
+
+function contextOf(message: MessageDetail, email?: string): string {
+  const role = roleOf(message, email)
   const lines = [
     `主题: ${message.subject}`,
     `发件人: ${message.from.name !== '' ? `${message.from.name} <${message.from.address}>` : message.from.address}`,
     `收件人: ${message.to.map((item) => (item.name !== '' ? `${item.name} <${item.address}>` : item.address)).join(', ')}`,
     ...(message.cc.length === 0 ? [] : [`抄送: ${message.cc.map((item) => item.address).join(', ')}`]),
+    ...(role === 'unknown' ? [] : [`你的身份: ${ROLE_TEXT[role]}`]),
     `时间: ${message.date}`,
     '',
     clip(bodyText(message)),
@@ -281,8 +311,12 @@ export class AiService {
     return trimmed
   }
 
-  async summarize(message: MessageDetail, signal?: AbortSignal): Promise<string> {
-    return this.complete(SUMMARY_SYSTEM, contextOf(message), signal)
+  async summarize(message: MessageDetail, email?: string, signal?: AbortSignal): Promise<string> {
+    const output = await this.complete(SUMMARY_SYSTEM, contextOf(message, email), signal)
+    const role = roleOf(message, email)
+    // A reply suggestion for someone who was only copied is misleading; the
+    // model sometimes still writes the section, so drop it deterministically.
+    return role === 'to' || role === 'unknown' ? output : stripReplySuggestions(output)
   }
 
   async reply(
@@ -313,6 +347,7 @@ export class AiService {
     message: MessageDetail,
     question: string,
     history: string[],
+    email?: string,
     signal?: AbortSignal,
   ): Promise<string> {
     const prompt = (question ?? '').trim()
@@ -324,7 +359,7 @@ export class AiService {
       .join('\n\n')
     const user = [
       '邮件：',
-      contextOf(message),
+      contextOf(message, email),
       ...(earlier === '' ? [] : ['', '已有 AI 记录：', earlier]),
       '',
       `用户的问题：${prompt}`,
@@ -537,6 +572,14 @@ export function parseTaskJson(text: string): TaskSuggestion[] {
     })
   }
   return result.slice(0, 30)
+}
+
+/** Remove the reply-suggestion section from a summary (CC-only mail). */
+export function stripReplySuggestions(text: string): string {
+  const lines = text.split(/\r?\n/)
+  const index = lines.findIndex((line) => /^#{0,4}\s*建议回复要点\s*[：:]?\s*$/.test(line.trim()))
+  if (index < 0) return text.trimEnd()
+  return lines.slice(0, index).join('\n').trimEnd()
 }
 
 /** Markdown-ish summary → simple blocks for the panel. */

@@ -435,7 +435,7 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       let html: string | undefined
       let meta: Record<string, string> | undefined
       if (kind === 'summary') {
-        output = await ai.summarize(detail)
+        output = await ai.summarize(detail, account.email)
       } else if (kind === 'reply') {
         output = await ai.reply(account, detail, { instruction, language })
         html = textToHtml(output)
@@ -459,7 +459,7 @@ function buildRouter(runtime: MailHarborRuntime): Router {
             .get(key)
             ?.cards.filter((card) => card.kind === 'answer')
             .map((card) => card.output) ?? []
-        output = await ai.ask(detail, instruction, earlier)
+        output = await ai.ask(detail, instruction, earlier, account.email)
       }
       const card = {
         id: randomUUID(),
@@ -576,7 +576,7 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       mailboxOfPayload(payload),
     )
     try {
-      const summary = await runtime.ai().summarize(detail)
+      const summary = await runtime.ai().summarize(detail, account.email)
       return { summary, blocks: summaryBlocks(summary) }
     } catch (error) {
       throw aiHttpError(error)

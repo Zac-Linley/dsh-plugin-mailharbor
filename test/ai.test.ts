@@ -2,7 +2,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { AiService, normalizeTranslated, summaryBlocks, textToHtml } from '../src/host/ai.js'
+import {
+  AiService,
+  normalizeTranslated,
+  stripReplySuggestions,
+  summaryBlocks,
+  textToHtml,
+} from '../src/host/ai.js'
 import type { MailHarborConfig } from '../src/host/config.js'
 import type { DshLlm, DshLlmChunk } from '../src/host/dsh.js'
 import type { Account, MessageDetail } from '../src/shared/types.js'
@@ -106,6 +112,40 @@ describe('AiService', () => {
     expect(prompts[0]?.system).toContain('简体中文')
     expect(prompts[0]?.user).toContain('季度预算复核')
     expect(prompts[0]?.user).toContain('请在周五前复核预算表')
+  })
+
+  it('marks a cc-only recipient and skips reply suggestions in the prompt', async () => {
+    const ccMessage = {
+      ...message,
+      to: [{ name: '', address: 'bob@example.com' }],
+      cc: [{ name: '', address: 'me@example.com' }],
+    }
+    const { llm, prompts } = fakeLlm('## 结论\n只是知悉。')
+    const service = new AiService({ config: () => config(), llm: () => llm, accountRoot: () => dir })
+    await service.summarize(ccMessage, account.email)
+    expect(prompts[0]?.user).toContain('你的身份: 仅抄送')
+    expect(prompts[0]?.system).toContain('不要输出「建议回复要点」')
+  })
+
+  it('drops reply suggestions for a cc-only summary', async () => {
+    const ccMessage = {
+      ...message,
+      to: [{ name: '', address: 'bob@example.com' }],
+      cc: [{ name: '', address: 'me@example.com' }],
+    }
+    const { llm } = fakeLlm('## 结论\n知悉即可。\n\n## 建议回复要点\n- 已收到')
+    const service = new AiService({ config: () => config(), llm: () => llm, accountRoot: () => dir })
+    const summary = await service.summarize(ccMessage, account.email)
+    expect(summary).toContain('知悉即可')
+    expect(summary).not.toContain('建议回复要点')
+    expect(stripReplySuggestions('A\n建议回复要点\n- x')).toBe('A')
+  })
+
+  it('marks a direct recipient in the prompt', async () => {
+    const { llm, prompts } = fakeLlm('## 结论\n需要复核。')
+    const service = new AiService({ config: () => config(), llm: () => llm, accountRoot: () => dir })
+    await service.summarize(message, account.email)
+    expect(prompts[0]?.user).toContain('你的身份: 直接收件人')
   })
 
   it('includes the saved writing style in a reply prompt', async () => {
