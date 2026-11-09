@@ -163,7 +163,7 @@ export class ImapProvider {
       }).catch(() => {
         // A failed keepalive is handled by the next operation.
       })
-    }, 240_000)
+    }, 150_000)
     this.keepalive.unref?.()
   }
 

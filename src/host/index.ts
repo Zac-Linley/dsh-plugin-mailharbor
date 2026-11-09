@@ -55,6 +55,18 @@ export function apply(ctx: DshContext): void {
       }
     },
   })
+
+  // Warm the active account's IMAP session at startup, so the first server
+  // mail open does not pay the TLS + LOGIN round trip.
+  const activeAccount = runtime.current.accounts.find((item) => item.id === runtime.current.activeAccountId)
+  if (activeAccount !== undefined && runtime.hasCredentials(activeAccount)) {
+    void runtime
+      .provider(activeAccount)
+      .warm()
+      .then(() => runtime.provider(activeAccount).list('INBOX', 40))
+      .catch(() => undefined)
+  }
+
   const handler = createApiHandler(runtime)
   const disposers: (() => void)[] = []
 

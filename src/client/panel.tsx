@@ -35,6 +35,33 @@ const pageCache = new Map<string, Page<MessageSummary>>()
 /** Opened message bodies, so switching back is instant. */
 const detailCache = new Map<string, { at: number; detail: MessageDetail }>()
 const DETAIL_TTL = 120_000
+const DISK_TTL = 6 * 60 * 60 * 1000
+const DISK_PREFIX = 'mailharbor.cache.'
+
+/** Persistent cache so a fresh window paints the last mail/folder instantly. */
+function readDisk<T>(name: string): T | null {
+  try {
+    const raw = window.localStorage.getItem(DISK_PREFIX + name)
+    if (raw === null) return null
+    const parsed = JSON.parse(raw) as { at?: number; value?: T }
+    if (typeof parsed.at !== 'number' || Date.now() - parsed.at > DISK_TTL) return null
+    return parsed.value ?? null
+  } catch {
+    return null
+  }
+}
+
+function writeDisk<T>(name: string, value: T): void {
+  try {
+    window.localStorage.setItem(DISK_PREFIX + name, JSON.stringify({ at: Date.now(), value }))
+    const keys = Object.keys(window.localStorage).filter((key) => key.startsWith(`${DISK_PREFIX}page.`))
+    if (keys.length > 24) {
+      for (const key of keys.slice(0, keys.length - 24)) window.localStorage.removeItem(key)
+    }
+  } catch {
+    // Storage full or disabled: the in-memory cache still works.
+  }
+}
 
 const FOLDER_LABELS: Record<string, string> = {
   INBOX: '收件箱',
@@ -158,6 +185,7 @@ export function MailPanel(): ReactNode {
   const [opening, setOpening] = useState<string | null>(null)
   const [aiElapsed, setAiElapsed] = useState(0)
   const hoverTimer = useRef<number | null>(null)
+  const folderPrefetchTimers = useRef<number[]>([])
   const [aiRequest, setAiRequest] = useState<AiRequest | null>(null)
   const [tick, setTick] = useState(0)
 
@@ -505,8 +533,8 @@ export function MailPanel(): ReactNode {
     if (accountScope === null) return
     let cancelled = false
     const cacheKey = `${accountScope}:${source}`
-    const cached = folderCache.get(cacheKey)
-    if (cached !== undefined) setFolders(cached)
+    const cached = folderCache.get(cacheKey) ?? readDisk<Folder[]>(`folders.${cacheKey}`)
+    if (cached !== null) setFolders(cached)
     api
       .folders({ accountId: accountScope, source })
       .then((result) => {
@@ -529,6 +557,7 @@ export function MailPanel(): ReactNode {
             : result.items.map((item) => ({ ...item, label: item.label ?? item.name }))
         setFolders(items)
         folderCache.set(cacheKey, items)
+        writeDisk(`folders.${cacheKey}`, items)
       })
       .catch(() => {
         if (!cancelled && cached === undefined) setFolders([])
@@ -585,8 +614,8 @@ export function MailPanel(): ReactNode {
       }
     }
     const pageKey = `${accountScope}:${source}:${mailbox}:${search}:${String(limit)}`
-    const cachedPage = pageCache.get(pageKey)
-    if (cachedPage !== undefined) {
+    const cachedPage = pageCache.get(pageKey) ?? readDisk<Page<MessageSummary>>(`page.${pageKey}`)
+    if (cachedPage !== null) {
       setPage(cachedPage)
       setLoading(false)
     }
@@ -607,6 +636,7 @@ export function MailPanel(): ReactNode {
             if (cachedFolders !== undefined) folderCache.set(key, update(cachedFolders))
           }
           pageCache.set(pageKey, result)
+          writeDisk(`page.${pageKey}`, result)
           if (pageCache.size > 12) {
             const oldest = pageCache.keys().next().value
             if (oldest !== undefined) pageCache.delete(oldest)
@@ -673,6 +703,26 @@ export function MailPanel(): ReactNode {
         })
         .catch(() => undefined)
     }, 160)
+  }
+
+  const prefetchFolder = (folder: string): void => {
+    if (accountScope === null || source !== 'server' || folder === DRAFTS) return
+    const key = `${accountScope}:${source}:${folder}::${String(limit)}`
+    const cached = pageCache.get(key)
+    if (cached !== undefined) return
+    // A hovered folder must not pile up background IMAP jobs.
+    for (const timer of folderPrefetchTimers.current) window.clearTimeout(timer)
+    folderPrefetchTimers.current = []
+    const timer = window.setTimeout(() => {
+      void api
+        .messages({ accountId: accountScope, source, mailbox: folder, query: '', limit })
+        .then((result) => {
+          pageCache.set(key, result)
+          writeDisk(`page.${key}`, result)
+        })
+        .catch(() => undefined)
+    }, 180)
+    folderPrefetchTimers.current.push(timer)
   }
 
   const openMessage = async (item: MessageSummary): Promise<void> => {
@@ -1140,6 +1190,7 @@ export function MailPanel(): ReactNode {
                         setMailbox(folder.name)
                         setSelected(null)
                       },
+                      onMouseEnter: () => prefetchFolder(folder.name),
                     },
                     h(Icon, { name: folder.name === DRAFTS ? 'compose' : 'folder', size: 14 }),
                     h('span', { className: 'name' }, folderName(folder.label ?? folder.name)),
@@ -1280,6 +1331,14 @@ export function MailPanel(): ReactNode {
                     },
                     '取消',
                   ),
+                )
+              : null,
+            loading && items.length > 0 && !showingDrafts
+              ? h(
+                  'div',
+                  { className: 'mailharbor-refreshing' },
+                  h('span', { className: 'mailharbor-spinner' }),
+                  '正在刷新…',
                 )
               : null,
             h(

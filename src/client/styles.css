@@ -2622,3 +2622,12 @@
 .mailharbor-thread-frame {
   height: clamp(220px, 42vh, 420px);
 }
+
+.mailharbor-refreshing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px 6px;
+  font-size: 11px;
+  color: var(--m-text-3);
+}
