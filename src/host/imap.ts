@@ -96,6 +96,7 @@ export class ImapProvider {
   private mailboxCache: { at: number; items: ImapMailbox[] } | null = null
   private readonly countCache = new Map<string, number>()
   private readonly pageCache = new Map<string, { at: number; total: number; items: ImapMessage[] }>()
+  private readonly readCache = new Map<string, { at: number; message: ImapFullMessage }>()
   private keepalive: ReturnType<typeof setInterval> | null = null
   private static readonly MAILBOX_TTL_MS = 60_000
 
@@ -333,6 +334,9 @@ export class ImapProvider {
   }
 
   async read(mailbox: string, uid: number): Promise<ImapFullMessage> {
+    const cacheKey = `${mailbox}:${String(uid)}`
+    const cached = this.readCache.get(cacheKey)
+    if (cached !== undefined && Date.now() - cached.at < 300_000) return cached.message
     return this.run(async (client) => {
       const lock = await client.getMailboxLock(mailbox)
       try {
@@ -352,7 +356,7 @@ export class ImapProvider {
             : Buffer.isBuffer(parsed.html)
               ? parsed.html.toString('utf8')
               : null
-        return {
+        const detail: ImapFullMessage = {
           ...base,
           text: typeof parsed.text === 'string' ? parsed.text : '',
           html: html === '' ? null : html,
@@ -363,6 +367,12 @@ export class ImapProvider {
             .map(normalizeId)
             .filter((item) => item !== ''),
         }
+        this.readCache.set(cacheKey, { at: Date.now(), message: detail })
+        if (this.readCache.size > 40) {
+          const oldest = this.readCache.keys().next().value
+          if (oldest !== undefined) this.readCache.delete(oldest)
+        }
+        return detail
       } finally {
         lock.release()
       }
@@ -465,6 +475,7 @@ export class ImapProvider {
   async dispose(): Promise<void> {
     this.disposed = true
     this.pageCache.clear()
+    this.readCache.clear()
     this.stopKeepalive()
     await this.reset('dispose')
   }

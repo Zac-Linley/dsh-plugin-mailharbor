@@ -109,6 +109,7 @@ export function AiRail({
   const [thread, setThread] = useState<AiThread | null>(null)
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState<Kind | null>(null)
+  const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState('')
   const [question, setQuestion] = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
@@ -199,6 +200,20 @@ export function AiRail({
     const element = list.current
     if (element !== null) element.scrollTop = element.scrollHeight
   }, [thread, generating])
+
+  useEffect(() => {
+    if (generating === null) {
+      setElapsed(0)
+      return
+    }
+    const started = Date.now()
+    const timer = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - started) / 1000))
+    }, 1000)
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [generating])
 
   // Which project, if any, is this mail linked to?
   useEffect(() => {
@@ -523,7 +538,15 @@ export function AiRail({
             'article',
             { className: 'mailharbor-ai-card generating' },
             h('div', { className: 'mailharbor-ai-card-head' }, h('span', null, KIND_LABEL[generating])),
-            h('div', { className: 'mailharbor-ai-text muted' }, '正在生成…'),
+            h(
+              'div',
+              {
+                className: 'mailharbor-ai-text muted',
+                style: { display: 'flex', gap: '8px', alignItems: 'center' },
+              },
+              h('span', { className: 'mailharbor-spinner' }),
+              `正在生成… ${String(elapsed)}s`,
+            ),
           )
         : null,
       error === '' ? null : h('div', { className: 'mailharbor-ai-error' }, error),

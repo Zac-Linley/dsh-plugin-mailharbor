@@ -21,7 +21,8 @@ const COLUMNS: { status: Task['status']; label: string; hint: string }[] = [
   { status: 'CANCELLED', label: '终止', hint: '不做了' },
 ]
 
-const PRIORITY_LABEL: Record<number, string> = { 0: '无', 5: '中', 9: '高' }
+const PRIORITY_LABEL: Record<number, string> = { 0: '无', 3: '低', 5: '中', 9: '高' }
+const PRIORITIES = [0, 3, 5, 9]
 
 function errorText(error: unknown): string {
   return error instanceof ApiError || error instanceof Error ? error.message : String(error)
@@ -435,7 +436,9 @@ export function TasksPanel(): ReactNode {
                               h(Icon, { name: 'calendar', size: 12 }),
                               dueText(task.due),
                             ),
-                        task.owner === '' ? null : h('span', { className: 'task-owner' }, task.owner),
+                        task.owner === ''
+                          ? null
+                          : h('span', { className: 'task-owner' }, `联系 ${task.owner}`),
                         task.projectId === null
                           ? null
                           : h(
@@ -446,8 +449,8 @@ export function TasksPanel(): ReactNode {
                         task.priority > 0
                           ? h(
                               'span',
-                              { className: 'task-priority-label' },
-                              `优先级 ${PRIORITY_LABEL[task.priority] ?? String(task.priority)}`,
+                              { className: `task-priority-label p${String(task.priority)}` },
+                              PRIORITY_LABEL[task.priority] ?? String(task.priority),
                             )
                           : null,
                       ),
@@ -483,8 +486,156 @@ export function TasksPanel(): ReactNode {
             setEditing(null)
           },
           onSave: (draft) => void save(draft),
+          onDelete:
+            editing === null
+              ? undefined
+              : () => {
+                  void remove(editing)
+                  setEditing(null)
+                },
         })
       : null,
+  )
+}
+
+function datePickerLabel(value: string): string {
+  if (value === '') return '不设截止'
+  const date = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })
+}
+
+function shiftDate(days: number): string {
+  const date = new Date()
+  date.setDate(date.getDate() + days)
+  return dateKey(date)
+}
+
+/** Next Friday (today counts when it is already Friday). */
+function nextFriday(): string {
+  const date = new Date()
+  const delta = (5 - date.getDay() + 7) % 7
+  date.setDate(date.getDate() + delta)
+  return dateKey(date)
+}
+
+function nextMonday(): string {
+  const date = new Date()
+  const delta = (8 - date.getDay()) % 7 || 7
+  date.setDate(date.getDate() + delta)
+  return dateKey(date)
+}
+
+function DuePicker({ value, onChange }: { value: string; onChange: (value: string) => void }): ReactNode {
+  const [open, setOpen] = useState(false)
+  const choose = (next: string): void => {
+    onChange(next)
+    setOpen(false)
+  }
+  const options: { label: string; value: string }[] = [
+    { label: '今天', value: shiftDate(0) },
+    { label: '明天', value: shiftDate(1) },
+    { label: '本周五', value: nextFriday() },
+    { label: '下周一', value: nextMonday() },
+  ]
+  return h(
+    'div',
+    { className: 'task-due' },
+    h(
+      'button',
+      {
+        type: 'button',
+        className: value === '' ? 'task-due-trigger empty' : 'task-due-trigger',
+        onClick: () => setOpen(!open),
+      },
+      h(Icon, { name: 'calendar', size: 14 }),
+      h('span', null, datePickerLabel(value)),
+      h(Icon, { name: 'chevronRight', size: 12 }),
+    ),
+    open
+      ? h(
+          'div',
+          { className: 'task-due-popover' },
+          h(
+            'div',
+            { className: 'task-due-quick' },
+            options.map((option) =>
+              h(
+                'button',
+                {
+                  key: option.label,
+                  type: 'button',
+                  className: value === option.value ? 'active' : '',
+                  onClick: () => choose(option.value),
+                },
+                option.label,
+              ),
+            ),
+          ),
+          h('input', {
+            type: 'date',
+            value,
+            onChange: (event: { target: { value: string } }) => onChange(event.target.value),
+          }),
+          h(
+            'div',
+            { className: 'task-due-foot' },
+            h('button', { type: 'button', className: 'subtle small', onClick: () => choose('') }, '清除截止'),
+            h('button', { type: 'button', className: 'subtle small', onClick: () => setOpen(false) }, '关闭'),
+          ),
+        )
+      : null,
+  )
+}
+
+function StatusPicker({
+  value,
+  onChange,
+}: {
+  value: Task['status']
+  onChange: (value: Task['status']) => void
+}): ReactNode {
+  return h(
+    'div',
+    { className: 'task-status-picker' },
+    COLUMNS.map((column) =>
+      h(
+        'button',
+        {
+          key: column.status,
+          type: 'button',
+          className: value === column.status ? 'active' : '',
+          onClick: () => onChange(column.status),
+        },
+        h('span', { className: `task-dot ${column.status}` }),
+        column.label,
+      ),
+    ),
+  )
+}
+
+function PriorityPicker({
+  value,
+  onChange,
+}: {
+  value: number
+  onChange: (value: number) => void
+}): ReactNode {
+  return h(
+    'div',
+    { className: 'task-priority-picker' },
+    PRIORITIES.map((priority) =>
+      h(
+        'button',
+        {
+          key: priority,
+          type: 'button',
+          className: `p${String(priority)}${value === priority ? ' active' : ''}`,
+          onClick: () => onChange(priority),
+        },
+        PRIORITY_LABEL[priority] ?? String(priority),
+      ),
+    ),
   )
 }
 
@@ -495,6 +646,7 @@ function TaskEditor({
   busy,
   onClose,
   onSave,
+  onDelete,
 }: {
   task: Task | null
   status: Task['status']
@@ -502,6 +654,7 @@ function TaskEditor({
   busy: boolean
   onClose: () => void
   onSave: (draft: typeof EMPTY & { id?: string }) => void
+  onDelete?: () => void
 }): ReactNode {
   const [draft, setDraft] = useState({
     ...EMPTY,
@@ -519,7 +672,20 @@ function TaskEditor({
           projectId: task.projectId ?? '',
         }),
   })
+  const [sourceError, setSourceError] = useState('')
   const set = (patch: Partial<typeof draft>): void => setDraft((current) => ({ ...current, ...patch }))
+
+  const openSource = (): void => {
+    if (task === null || task.messageKey === '') return
+    void api
+      .lookupMessage(task.accountId, task.messageKey)
+      .then((found) => {
+        requestOpenMail({ accountId: task.accountId, id: found.id, mailbox: found.mailbox })
+        document.querySelector<HTMLElement>('button[aria-label="MailHarbor"]')?.click()
+        onClose()
+      })
+      .catch((caught: unknown) => setSourceError(errorText(caught)))
+  }
 
   return h(
     Modal,
@@ -530,7 +696,18 @@ function TaskEditor({
       footer: h(
         'div',
         { className: 'task-editor-foot' },
-        h('span', { className: 'small muted' }, '提示：任务会保存在本地，可在看板中拖动改变状态。'),
+        onDelete === undefined
+          ? null
+          : h(
+              'button',
+              {
+                className: 'subtle small danger',
+                onClick: () => {
+                  if (window.confirm('删除这个任务？')) onDelete()
+                },
+              },
+              '删除任务',
+            ),
         h('span', { className: 'spacer' }),
         h('button', { className: 'ghost', onClick: onClose }, '取消'),
         h(
@@ -546,97 +723,58 @@ function TaskEditor({
     },
     h(
       'div',
-      { className: 'task-editor' },
+      { className: 'task-editor-v2' },
       h(
         'div',
-        { className: 'task-editor-main' },
+        { className: 'task-editor-head' },
+        h('input', {
+          className: 'task-title-input',
+          value: draft.title,
+          autoFocus: true,
+          placeholder: '要做什么？',
+          onChange: (event: { target: { value: string } }) => set({ title: event.target.value }),
+        }),
+        h(StatusPicker, {
+          value: draft.status,
+          onChange: (next) => set({ status: next }),
+        }),
+      ),
+      h(
+        'div',
+        { className: 'task-editor-columns' },
         h(
           'div',
-          { className: 'task-editor-title' },
-          h('input', {
-            value: draft.title,
-            autoFocus: true,
-            placeholder: '要做什么？',
-            onChange: (event: { target: { value: string } }) => set({ title: event.target.value }),
-          }),
-        ),
-        h(
-          'div',
-          { className: 'task-editor-section' },
-          h('label', null, '备注'),
+          { className: 'task-editor-col' },
+          h('label', { className: 'task-label' }, '备注'),
           h('textarea', {
-            rows: 5,
+            rows: 6,
             value: draft.notes,
             placeholder: '背景、下一步、链接…',
             onChange: (event: { target: { value: string } }) => set({ notes: event.target.value }),
           }),
-        ),
-        h(
-          'div',
-          { className: 'task-editor-section' },
-          h('label', null, '来源'),
-          draft.id === undefined
-            ? h('span', { className: 'small muted' }, '从邮件提取的任务会自动关联来源邮件。')
+          task === null || task.messageKey === ''
+            ? h('p', { className: 'task-hint' }, '从邮件提取的任务会自动关联来源邮件。')
             : h(
-                'span',
-                { className: 'small muted' },
-                task?.messageSubject !== undefined && task.messageSubject !== ''
-                  ? `来自邮件：${task.messageSubject}`
-                  : '无关联邮件',
+                'div',
+                { className: 'task-source-row' },
+                h(
+                  'button',
+                  { className: 'ghost small', onClick: openSource },
+                  h(Icon, { name: 'mail', size: 13 }),
+                  '打开来源邮件',
+                ),
+                h('span', { className: 'task-hint' }, task.messageSubject === '' ? '' : task.messageSubject),
               ),
-        ),
-      ),
-      h(
-        'aside',
-        { className: 'task-editor-side' },
-        h(
-          'div',
-          { className: 'task-editor-field' },
-          h('label', null, '状态'),
-          h(
-            'select',
-            {
-              value: draft.status,
-              onChange: (event: { target: { value: string } }) =>
-                set({ status: event.target.value as Task['status'] }),
-            },
-            COLUMNS.map((column) => h('option', { key: column.status, value: column.status }, column.label)),
-          ),
+          sourceError === '' ? null : h('p', { className: 'task-hint danger' }, sourceError),
         ),
         h(
-          'div',
-          { className: 'task-editor-field' },
-          h('label', null, '截止日期'),
-          h('input', {
-            type: 'date',
-            value: draft.due,
-            onChange: (event: { target: { value: string } }) => set({ due: event.target.value }),
-          }),
-        ),
-        h(
-          'div',
-          { className: 'task-editor-field' },
-          h('label', null, '优先级'),
-          h(
-            'div',
-            { className: 'task-priority-picker' },
-            [0, 5, 9].map((value) =>
-              h(
-                'button',
-                {
-                  key: value,
-                  className: draft.priority === value ? 'active' : '',
-                  onClick: () => set({ priority: value }),
-                },
-                PRIORITY_LABEL[value] ?? String(value),
-              ),
-            ),
-          ),
-        ),
-        h(
-          'div',
-          { className: 'task-editor-field' },
-          h('label', null, '项目'),
+          'aside',
+          { className: 'task-editor-col side' },
+          h('label', { className: 'task-label' }, '截止日期'),
+          h(DuePicker, { value: draft.due, onChange: (next) => set({ due: next }) }),
+          h('label', { className: 'task-label' }, '优先级'),
+          h(PriorityPicker, { value: draft.priority, onChange: (next) => set({ priority: next }) }),
+          h('label', { className: 'task-label' }, '项目'),
           h(
             'select',
             {
@@ -646,14 +784,10 @@ function TaskEditor({
             h('option', { value: '' }, '无项目'),
             projects.map((project) => h('option', { key: project.id, value: project.id }, project.name)),
           ),
-        ),
-        h(
-          'div',
-          { className: 'task-editor-field' },
-          h('label', null, '负责人'),
+          h('label', { className: 'task-label' }, '这个事联系谁'),
           h('input', {
             value: draft.owner,
-            placeholder: '可选',
+            placeholder: '姓名或邮箱，可留空',
             onChange: (event: { target: { value: string } }) => set({ owner: event.target.value }),
           }),
         ),

@@ -399,12 +399,26 @@ export function Composer({
       h(
         'button',
         { className: 'ai', onClick: () => void runAi('polish'), disabled: aiBusy !== null || !hasBody },
-        aiBusy === 'polish' ? '润色中…' : '润色',
+        aiBusy === 'polish'
+          ? h(
+              'span',
+              { style: { display: 'inline-flex', gap: '5px', alignItems: 'center' } },
+              h('span', { className: 'mailharbor-spinner' }),
+              '润色中…',
+            )
+          : '润色',
       ),
       h(
         'button',
         { className: 'ai', onClick: () => void runAi('shorten'), disabled: aiBusy !== null || !hasBody },
-        aiBusy === 'shorten' ? '缩短中…' : '缩短',
+        aiBusy === 'shorten'
+          ? h(
+              'span',
+              { style: { display: 'inline-flex', gap: '5px', alignItems: 'center' } },
+              h('span', { className: 'mailharbor-spinner' }),
+              '缩短中…',
+            )
+          : '缩短',
       ),
       h(
         'button',

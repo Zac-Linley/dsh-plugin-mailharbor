@@ -1,4 +1,4 @@
-import { createElement as h, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { createElement as h, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type {
   AiSearchFilters,
   AppState,
@@ -32,6 +32,9 @@ const DRAFTS = '__drafts'
 /** Paint the last known folders/page while the server answers. */
 const folderCache = new Map<string, Folder[]>()
 const pageCache = new Map<string, Page<MessageSummary>>()
+/** Opened message bodies, so switching back is instant. */
+const detailCache = new Map<string, { at: number; detail: MessageDetail }>()
+const DETAIL_TTL = 120_000
 
 const FOLDER_LABELS: Record<string, string> = {
   INBOX: '收件箱',
@@ -152,6 +155,9 @@ export function MailPanel(): ReactNode {
   const [managerConfirm, setManagerConfirm] = useState('')
   const [managerBusy, setManagerBusy] = useState(false)
   const [aiSearching, setAiSearching] = useState(false)
+  const [opening, setOpening] = useState<string | null>(null)
+  const [aiElapsed, setAiElapsed] = useState(0)
+  const hoverTimer = useRef<number | null>(null)
   const [aiRequest, setAiRequest] = useState<AiRequest | null>(null)
   const [tick, setTick] = useState(0)
 
@@ -208,6 +214,20 @@ export function MailPanel(): ReactNode {
       setError(errorText(caught))
     }
   }
+
+  useEffect(() => {
+    if (!aiSearching) {
+      setAiElapsed(0)
+      return
+    }
+    const started = Date.now()
+    const timer = window.setInterval(() => {
+      setAiElapsed(Math.floor((Date.now() - started) / 1000))
+    }, 1000)
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [aiSearching])
 
   const runAiSearch = async (): Promise<void> => {
     const text = query.trim()
@@ -399,6 +419,28 @@ export function MailPanel(): ReactNode {
     } finally {
       setExtractBusy(false)
     }
+  }
+
+  const updateSuggestion = (index: number, patch: Partial<TaskSuggestion>): void => {
+    setExtraction((current) =>
+      current === null
+        ? null
+        : {
+            ...current,
+            items: current.items.map((item, position) => (position === index ? { ...item, ...patch } : item)),
+          },
+    )
+  }
+
+  const removeSuggestion = (index: number): void => {
+    setExtraction((current) =>
+      current === null
+        ? null
+        : {
+            items: current.items.filter((_item, position) => position !== index),
+            checked: current.checked.filter((_value, position) => position !== index),
+          },
+    )
   }
 
   const saveExtraction = async (): Promise<void> => {
@@ -616,13 +658,42 @@ export function MailPanel(): ReactNode {
     }
   }, [showBackup, accountScope, isAll])
 
+  const messageKeyOf = (item: MessageSummary): string => `${item.accountId}:${source}:${item.id}`
+
+  const prefetchMessage = (item: MessageSummary): void => {
+    if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current)
+    hoverTimer.current = window.setTimeout(() => {
+      const key = messageKeyOf(item)
+      const cached = detailCache.get(key)
+      if (cached !== undefined && Date.now() - cached.at < DETAIL_TTL) return
+      void api
+        .message({ id: item.id, accountId: item.accountId, source, mailbox })
+        .then((detail) => {
+          detailCache.set(key, { at: Date.now(), detail })
+        })
+        .catch(() => undefined)
+    }, 160)
+  }
+
   const openMessage = async (item: MessageSummary): Promise<void> => {
     const owner = item.accountId
     const ownerSource = source
+    const cacheKey = messageKeyOf(item)
+    const cached = detailCache.get(cacheKey)
     setError('')
+    if (cached !== undefined && Date.now() - cached.at < DETAIL_TTL) {
+      setSelected(cached.detail)
+    } else {
+      setOpening(item.subject)
+    }
     try {
-      const detail = await api.message({ id: item.id, accountId: owner, source: ownerSource, mailbox })
+      const detail =
+        cached !== undefined && Date.now() - cached.at < DETAIL_TTL
+          ? cached.detail
+          : await api.message({ id: item.id, accountId: owner, source: ownerSource, mailbox })
+      detailCache.set(cacheKey, { at: Date.now(), detail })
       setSelected(detail)
+      setOpening(null)
       if (detail.unread && state?.settings.read.markOnOpen === true) {
         try {
           await api.setRead({ id: detail.id, accountId: owner, source: ownerSource, mailbox, read: true })
@@ -636,6 +707,7 @@ export function MailPanel(): ReactNode {
         }
       }
     } catch (caught) {
+      setOpening(null)
       setError(errorText(caught))
     }
   }
@@ -852,6 +924,12 @@ export function MailPanel(): ReactNode {
             if (selectMode) toggleSelect(item)
             else void openMessage(item)
           }
+        },
+        onMouseEnter: () => {
+          if (!selectMode) prefetchMessage(item)
+        },
+        onMouseLeave: () => {
+          if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current)
         },
       },
       h(
@@ -1133,7 +1211,12 @@ export function MailPanel(): ReactNode {
                   ),
                 ),
             aiSearching
-              ? h('div', { className: 'mailharbor-ai-search searching' }, 'AI 正在理解并搜索…')
+              ? h(
+                  'div',
+                  { className: 'mailharbor-ai-search searching' },
+                  h('span', { className: 'mailharbor-spinner' }),
+                  `AI 正在理解并搜索… ${String(aiElapsed)}s`,
+                )
               : null,
             selectMode
               ? h(
@@ -1346,17 +1429,33 @@ export function MailPanel(): ReactNode {
                     loggedIn ? '已登录，可切换「服务器实时」查看最新邮件。' : '浏览本地备份不需要登录。',
                   ),
                 )
-              : h(Reader, {
-                  detail: selected,
-                  source,
-                  mailbox,
-                  onChanged: (patch) => setSelected({ ...selected, ...patch }),
-                  onReply: (mode) => startCompose(mode),
-                  onAiAction: requestAi,
-                  onExtractTasks: () => void extractTasks(),
-                  onAddToProject: openProjectPicker,
-                  onClose: narrow ? () => setSelected(null) : undefined,
-                }),
+              : opening !== null && selected === null
+                ? h(
+                    'div',
+                    { className: 'mailharbor-reader' },
+                    h(
+                      'div',
+                      { className: 'mailharbor-reader-head' },
+                      h(
+                        'div',
+                        { className: 'mailharbor-reader-title' },
+                        h('h2', null, opening),
+                        h('span', { className: 'mailharbor-spinner', style: { marginLeft: '8px' } }),
+                      ),
+                      h('div', { className: 'small muted' }, '正在读取邮件…'),
+                    ),
+                  )
+                : h(Reader, {
+                    detail: selected,
+                    source,
+                    mailbox,
+                    onChanged: (patch) => setSelected({ ...selected, ...patch }),
+                    onReply: (mode) => startCompose(mode),
+                    onAiAction: requestAi,
+                    onExtractTasks: () => void extractTasks(),
+                    onAddToProject: openProjectPicker,
+                    onClose: narrow ? () => setSelected(null) : undefined,
+                  }),
           ),
           railOpen
             ? h(AiRail, {
@@ -1650,7 +1749,7 @@ export function MailPanel(): ReactNode {
             { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
             extraction.items.map((item, index) =>
               h(
-                'label',
+                'div',
                 { key: `${item.title}:${String(index)}`, className: 'mailharbor-extract-row' },
                 h('input', {
                   type: 'checkbox',
@@ -1662,20 +1761,53 @@ export function MailPanel(): ReactNode {
                   },
                 }),
                 h(
-                  'span',
-                  null,
-                  h('strong', null, item.title),
+                  'div',
+                  { className: 'extract-body' },
+                  h('input', {
+                    className: 'extract-title',
+                    value: item.title,
+                    onChange: (event: { target: { value: string } }) =>
+                      updateSuggestion(index, { title: event.target.value }),
+                  }),
                   h(
-                    'span',
-                    { className: 'small muted' },
-                    [
-                      item.due === '' ? '' : `截止 ${item.due}`,
-                      item.owner === '' ? '' : `负责人 ${item.owner}`,
-                      item.notes,
-                    ]
-                      .filter((part) => part !== '')
-                      .join(' · '),
+                    'div',
+                    { className: 'extract-meta' },
+                    h('input', {
+                      type: 'date',
+                      value: item.due,
+                      onChange: (event: { target: { value: string } }) =>
+                        updateSuggestion(index, { due: event.target.value }),
+                    }),
+                    h(
+                      'select',
+                      {
+                        value: String(item.priority),
+                        onChange: (event: { target: { value: string } }) =>
+                          updateSuggestion(index, { priority: Number(event.target.value) }),
+                      },
+                      h('option', { value: '0' }, '无优先级'),
+                      h('option', { value: '3' }, '低'),
+                      h('option', { value: '5' }, '中'),
+                      h('option', { value: '9' }, '高'),
+                    ),
+                    h('input', {
+                      className: 'extract-owner',
+                      value: item.owner,
+                      placeholder: '这个事联系谁',
+                      onChange: (event: { target: { value: string } }) =>
+                        updateSuggestion(index, { owner: event.target.value }),
+                    }),
                   ),
+                  item.notes === '' ? null : h('span', { className: 'small muted' }, item.notes),
+                ),
+                h(
+                  'button',
+                  {
+                    className: 'subtle icon',
+                    title: '移除这条',
+                    onClick: () => removeSuggestion(index),
+                  },
+                  h(Icon, { name: 'close', size: 12 }),
                 ),
               ),
             ),
