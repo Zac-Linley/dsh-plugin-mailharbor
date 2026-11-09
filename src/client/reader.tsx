@@ -1,5 +1,5 @@
-import { createElement as h, useMemo, useState, type ReactNode } from 'react'
-import type { MessageDetail } from '../shared/types.js'
+import { createElement as h, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { MessageDetail, MessageSummary } from '../shared/types.js'
 import { api } from './api.js'
 import { Avatar, formatBytes, longDate } from './components.js'
 import { Icon } from './icons.js'
@@ -50,6 +50,10 @@ function addressLine(list: { name: string; address: string }[]): string {
   return list.map((item) => (item.name !== '' ? `${item.name} <${item.address}>` : item.address)).join('、')
 }
 
+function isSentMailbox(mailbox: string): boolean {
+  return /(^|[/.])(sent|sent items|sent mail|已发送|发件箱)/i.test(mailbox)
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -64,6 +68,9 @@ export function Reader({
   onExtractTasks,
   onAddToProject,
   onClose,
+  thread = [],
+  onSelectMessage,
+  loadDetail,
 }: {
   detail: MessageDetail
   source: 'local' | 'server'
@@ -74,13 +81,45 @@ export function Reader({
   onExtractTasks: () => void
   onAddToProject: () => void
   onClose?: () => void
+  thread?: MessageSummary[]
+  onSelectMessage?: (item: MessageSummary) => void
+  loadDetail?: (item: MessageSummary) => Promise<MessageDetail>
 }): ReactNode {
   const [plain, setPlain] = useState(false)
   const [loadImages, setLoadImages] = useState(false)
+  const [details, setDetails] = useState<Record<string, MessageDetail>>({})
+  const [expanded, setExpanded] = useState<string[]>([detail.id])
+  const selectedCard = useRef<HTMLDivElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   const remoteImages = useMemo(() => hasRemoteImages(detail), [detail])
+  const conversation = thread.length > 1 ? [...thread].reverse() : []
+  const threaded = conversation.length > 0 && loadDetail !== undefined
+
+  useEffect(() => {
+    setDetails((current) => ({ ...current, [detail.id]: detail }))
+    setExpanded((current) => (current.includes(detail.id) ? current : [...current, detail.id]))
+  }, [detail])
+
+  useEffect(() => {
+    selectedCard.current?.scrollIntoView({ block: 'nearest' })
+  }, [detail.id])
+
+  const toggleThread = (item: MessageSummary): void => {
+    const open = expanded.includes(item.id)
+    if (open) {
+      setExpanded(expanded.filter((id) => id !== item.id))
+      return
+    }
+    setExpanded([...expanded, item.id])
+    onSelectMessage?.(item)
+    if (details[item.id] === undefined) {
+      void loadDetail?.(item)
+        .then((loaded) => setDetails((current) => ({ ...current, [item.id]: loaded })))
+        .catch(() => undefined)
+    }
+  }
   const html = detail.html !== null && detail.html !== ''
 
   const toggleRead = async (): Promise<void> => {
@@ -211,18 +250,91 @@ export function Reader({
       ),
       error === '' ? null : h('div', { className: 'small', style: { color: 'var(--m-danger)' } }, error),
     ),
-    h(
-      'div',
-      { className: 'mailharbor-reader-body' },
-      html && !plain
-        ? h('iframe', {
-            title: '邮件正文',
-            sandbox: '',
-            srcDoc: srcDoc(detail, loadImages),
-            referrerPolicy: 'no-referrer',
-          })
-        : h('pre', null, detail.text !== '' ? detail.text : '（无正文）'),
-    ),
+    threaded
+      ? h(
+          'div',
+          { className: 'mailharbor-thread-view' },
+          h(
+            'div',
+            { className: 'mailharbor-thread-hint' },
+            h(Icon, { name: 'mail', size: 13 }),
+            `共 ${String(conversation.length)} 封 · 点击任意一封展开或收起`,
+          ),
+          conversation.map((item) => {
+            const expandedItem = expanded.includes(item.id)
+            const itemDetail = details[item.id]
+            const sentItem = isSentMailbox(mailbox) && item.to.length > 0
+            const who = sentItem ? (item.to[0] ?? item.from) : item.from
+            const selectedItem = item.id === detail.id
+            return h(
+              'div',
+              {
+                key: item.id,
+                ref: selectedItem ? selectedCard : undefined,
+                className: `mailharbor-thread-msg${selectedItem ? ' selected' : ''}${expandedItem ? ' open' : ''}`,
+              },
+              h(
+                'button',
+                { className: 'mailharbor-thread-head', onClick: () => toggleThread(item) },
+                h(Avatar, { email: who.address, size: 26 }),
+                h(
+                  'span',
+                  { className: 'thread-who' },
+                  h('strong', null, who.name !== '' ? who.name : who.address),
+                  h('span', { className: 'small muted' }, who.address),
+                ),
+                h(
+                  'span',
+                  { className: 'small muted thread-to' },
+                  sentItem ? `发给 ${addressLine(item.to)}` : `发给 ${addressLine(item.to)}`,
+                ),
+                h('span', { className: 'small muted' }, longDate(item.date)),
+                expandedItem
+                  ? h(Icon, { name: 'chevronLeft', size: 14 })
+                  : h(Icon, { name: 'chevronRight', size: 14 }),
+              ),
+              expandedItem
+                ? h(
+                    'div',
+                    { className: 'mailharbor-thread-body' },
+                    itemDetail === undefined
+                      ? h(
+                          'div',
+                          { className: 'thread-loading small muted' },
+                          h('span', { className: 'mailharbor-spinner' }),
+                          '正在读取…',
+                        )
+                      : h(
+                          'div',
+                          { className: 'mailharbor-thread-frame' },
+                          h('iframe', {
+                            title: `邮件正文 ${item.id}`,
+                            sandbox: '',
+                            srcDoc: srcDoc(itemDetail, loadImages),
+                            referrerPolicy: 'no-referrer',
+                          }),
+                        ),
+                  )
+                : h(
+                    'div',
+                    { className: 'mailharbor-thread-preview small muted' },
+                    item.snippet !== '' ? item.snippet : '(无预览)',
+                  ),
+            )
+          }),
+        )
+      : h(
+          'div',
+          { className: 'mailharbor-reader-body' },
+          html && !plain
+            ? h('iframe', {
+                title: '邮件正文',
+                sandbox: '',
+                srcDoc: srcDoc(detail, loadImages),
+                referrerPolicy: 'no-referrer',
+              })
+            : h('pre', null, detail.text !== '' ? detail.text : '（无正文）'),
+        ),
     detail.attachments.length === 0
       ? null
       : h(

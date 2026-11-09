@@ -895,6 +895,29 @@ export function MailPanel(): ReactNode {
   const needsLogin = source === 'server' && !isAll && state.loggedIn === false
   const items = page.items
 
+  const loadDetailFor = async (item: MessageSummary): Promise<MessageDetail> => {
+    const key = messageKeyOf(item)
+    const cached = detailCache.get(key)
+    if (cached !== undefined && Date.now() - cached.at < DETAIL_TTL) return cached.detail
+    const detail = await api.message({
+      id: item.id,
+      accountId: item.accountId,
+      source,
+      mailbox,
+    })
+    detailCache.set(key, { at: Date.now(), detail })
+    return detail
+  }
+
+  const threadItems =
+    selected === null
+      ? []
+      : items.filter(
+          (item) =>
+            item.accountId === selected.accountId &&
+            normalizeSubject(item.subject) === normalizeSubject(selected.subject),
+        )
+
   const isSent = isSentFolder(mailbox)
   const groups = groupMessages(items)
 
@@ -1455,6 +1478,9 @@ export function MailPanel(): ReactNode {
                     onExtractTasks: () => void extractTasks(),
                     onAddToProject: openProjectPicker,
                     onClose: narrow ? () => setSelected(null) : undefined,
+                    thread: threadItems,
+                    onSelectMessage: (item) => void openMessage(item),
+                    loadDetail: loadDetailFor,
                   }),
           ),
           railOpen
