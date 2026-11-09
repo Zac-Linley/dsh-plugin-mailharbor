@@ -70,13 +70,27 @@ function isSeen(flags: string[]): boolean {
   return flags.some((flag) => flag.toLowerCase() === '\\seen')
 }
 
+function isInlineImage(attachment: {
+  contentType?: string
+  contentDisposition?: string
+  cid?: string
+}): boolean {
+  const type = String(attachment.contentType ?? '').toLowerCase()
+  if (!type.startsWith('image/')) return false
+  const disposition = String(attachment.contentDisposition ?? '').toLowerCase()
+  const cid = String(attachment.cid ?? '')
+  return disposition === 'inline' || (cid !== '' && disposition !== 'attachment')
+}
+
 function attachmentList(parsed: Awaited<ReturnType<typeof simpleParser>>): AttachmentMeta[] {
-  return (parsed.attachments ?? []).map((attachment, index) => ({
-    id: String(index),
-    filename: String(attachment.filename ?? 'attachment'),
-    contentType: String(attachment.contentType ?? 'application/octet-stream'),
-    size: Number(attachment.size ?? attachment.content?.length ?? 0),
-  }))
+  return (parsed.attachments ?? [])
+    .filter((attachment) => !isInlineImage(attachment))
+    .map((attachment, index) => ({
+      id: String(index),
+      filename: String(attachment.filename ?? 'attachment'),
+      contentType: String(attachment.contentType ?? 'application/octet-stream'),
+      size: Number(attachment.size ?? attachment.content?.length ?? 0),
+    }))
 }
 
 /**

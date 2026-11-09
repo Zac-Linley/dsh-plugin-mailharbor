@@ -151,7 +151,7 @@ export class BackupEngine {
     const emailId = Number(inserted.lastInsertRowid)
     const attachments = parsed.attachments ?? []
     const insertAttachment = db.prepare(
-      'INSERT INTO attachments (email_id, filename, content_type, size, hash) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO attachments (email_id, filename, content_type, size, hash, content_id, disposition) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
     for (const attachment of attachments) {
       const data = attachment.content
@@ -163,6 +163,8 @@ export class BackupEngine {
         String(attachment.contentType ?? 'application/octet-stream'),
         stored.size,
         stored.hash,
+        attachment.cid === undefined ? null : String(attachment.cid).replace(/^<|>$/g, ''),
+        attachment.contentDisposition === undefined ? null : String(attachment.contentDisposition),
       )
     }
     try {

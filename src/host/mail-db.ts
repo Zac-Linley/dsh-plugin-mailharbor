@@ -75,6 +75,15 @@ export function ensureMailSchema(file: string): void {
     } catch {
       // A build without FTS5 still backs up mail; search falls back to LIKE.
     }
+    // Inline images (signature logos, cid images) were stored as attachments
+    // before these columns existed; keep the schema forward-compatible.
+    const columns = db.prepare('PRAGMA table_info(attachments)').all() as { name?: string }[]
+    if (!columns.some((column) => column.name === 'content_id')) {
+      db.exec('ALTER TABLE attachments ADD COLUMN content_id TEXT')
+    }
+    if (!columns.some((column) => column.name === 'disposition')) {
+      db.exec('ALTER TABLE attachments ADD COLUMN disposition TEXT')
+    }
   } finally {
     db.close()
   }
@@ -129,6 +138,29 @@ export class MailDatabase {
     this.db = new DatabaseSync(this.file, { readOnly: true })
     this.db.exec('PRAGMA busy_timeout = 3000')
     return this.db
+  }
+
+  /** Whether the backup has added inline-image columns yet. */
+  private hasAttachmentColumns(): boolean {
+    try {
+      const columns = this.open().prepare('PRAGMA table_info(attachments)').all() as { name?: string }[]
+      return columns.some((column) => column.name === 'content_id')
+    } catch {
+      return false
+    }
+  }
+
+  private attachmentCountSql(): string {
+    if (!this.hasAttachmentColumns()) {
+      return '(SELECT COUNT(*) FROM attachments a WHERE a.email_id = e.id) AS attachment_count'
+    }
+    return `(SELECT COUNT(*) FROM attachments a
+          WHERE a.email_id = e.id
+            AND NOT (a.content_type LIKE 'image/%' AND (
+              a.disposition = 'inline'
+              OR (a.content_id IS NOT NULL AND a.content_id <> '' AND a.disposition IS NOT 'attachment')
+              OR lower(a.filename) GLOB 'image[0-9]*'
+            ))) AS attachment_count`
   }
 
   close(): void {
@@ -210,7 +242,7 @@ export class MailDatabase {
     const clause = where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`
     const columns = `SELECT e.id, e.mailbox, e.uid, e.subject, e.from_name, e.from_addr, e.to_addr, e.cc,
         e.message_id, e.date, length(e.body_text) AS text_length,
-        (SELECT COUNT(*) FROM attachments a WHERE a.email_id = e.id) AS attachment_count,
+        ${this.attachmentCountSql()},
         substr(COALESCE(e.body_text, ''), 1, 240) AS snippet`
     const total = Number(
       db.prepare(`SELECT COUNT(*) AS count FROM emails e ${clause}`).get(...params)?.count ?? 0,
@@ -276,7 +308,7 @@ export class MailDatabase {
     const clause = `WHERE ${where.join(' AND ')}`
     const columns = `SELECT e.id, e.mailbox, e.uid, e.subject, e.from_name, e.from_addr, e.to_addr, e.cc,
         e.message_id, e.date, length(e.body_text) AS text_length,
-        (SELECT COUNT(*) FROM attachments a WHERE a.email_id = e.id) AS attachment_count,
+        ${this.attachmentCountSql()},
         substr(COALESCE(e.body_text, ''), 1, 240) AS snippet`
     const total = Number(
       db.prepare(`SELECT COUNT(*) AS count FROM emails e ${clause}`).get(...params)?.count ?? 0,
@@ -297,9 +329,26 @@ export class MailDatabase {
       )
       .get(localId)
     if (row === undefined) return undefined
+    const cidText = String(row.body_html ?? '').toLowerCase()
+    const attachmentColumns = this.hasAttachmentColumns()
+      ? 'id, filename, content_type, size, content_id, disposition'
+      : 'id, filename, content_type, size'
     const attachments = db
-      .prepare('SELECT id, filename, content_type, size FROM attachments WHERE email_id = ? ORDER BY id')
+      .prepare(`SELECT ${attachmentColumns} FROM attachments WHERE email_id = ? ORDER BY id`)
       .all(localId)
+      .filter((item: Record<string, unknown>) => {
+        const type = String(item.content_type ?? '').toLowerCase()
+        if (!type.startsWith('image/')) return true
+        const disposition = String(item.disposition ?? '').toLowerCase()
+        const contentId = String(item.content_id ?? '').toLowerCase()
+        if (disposition === 'inline') return false
+        if (contentId !== '' && disposition !== 'attachment') return false
+        // Legacy rows: an image whose filename appears in a cid: reference is inline.
+        const filename = String(item.filename ?? '').toLowerCase()
+        if (filename !== '' && cidText.includes(`cid:${filename}`)) return false
+        if (/^image\d+\.[a-z0-9]+$/.test(filename)) return false
+        return true
+      })
       .map((item: Record<string, unknown>): AttachmentMeta => ({
         id: String(item.id),
         filename: String(item.filename ?? 'attachment'),
