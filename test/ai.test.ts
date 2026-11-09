@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AiService,
+  compactSummary,
   normalizeTranslated,
   stripReplySuggestions,
   summaryBlocks,
@@ -124,7 +125,36 @@ describe('AiService', () => {
     const service = new AiService({ config: () => config(), llm: () => llm, accountRoot: () => dir })
     await service.summarize(ccMessage, account.email)
     expect(prompts[0]?.user).toContain('你的身份: 仅抄送')
-    expect(prompts[0]?.system).toContain('不要输出「建议回复要点」')
+    expect(prompts[0]?.system).toContain('只有当身份是「直接收件人」')
+  })
+
+  it('compacts a verbose summary to the section limits', () => {
+    const verbose = [
+      '结论',
+      '这是一封很长的结论。',
+      '需要你做什么',
+      '- 任务一',
+      '- 任务二',
+      '- 任务三',
+      '- 任务四',
+      '关键信息',
+      '- 信息一',
+      '- 信息二',
+      '- 信息三',
+      '- 信息四',
+      '- 信息五',
+      '- 信息六',
+      '建议回复要点',
+      '- 要点一',
+      '- 要点二',
+      '- 要点三',
+    ].join('\n')
+    const compact = compactSummary(verbose)
+    expect(compact).toContain('任务三')
+    expect(compact).not.toContain('任务四')
+    expect(compact).toContain('信息五')
+    expect(compact).not.toContain('信息六')
+    expect(compact).not.toContain('要点三')
   })
 
   it('drops reply suggestions for a cc-only summary', async () => {

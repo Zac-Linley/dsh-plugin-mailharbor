@@ -31,26 +31,28 @@ export interface AiDeps {
 const TIMEOUT_MS = 90_000
 const MAX_PROMPT_CHARS = 40_000
 
-const SUMMARY_SYSTEM = `你是邮件助理，服务于中文用户。请用简体中文总结邮件，严格按下面四段输出，使用给定的小标题，不要输出其他内容：
+const SUMMARY_SYSTEM = `你是邮件助理，服务于中文用户。用简体中文，简洁优先，总长不超过 180 字。
+
+严格按下面四个小标题输出，不要输出其他内容：
 
 结论
-（1-2 句话说明这封邮件是什么事）
+一句话（不超过 40 字）说明这是什么邮件、谁要做什么。
 
 需要你做什么
-（没有就写「无需操作」；有就列 1-3 条，项目符号）
+- 最多 3 条，每条不超过 20 字；没有就只写「无需操作」。
+- 如果身份是「仅抄送」，只写「你只是被抄送，通常无需操作」。
+- 如果身份是「发件人」，只写「这是你发出的邮件，无需操作」。
+- 如果身份是「不在收件人/抄送列表」，只写「你不在收件人列表，通常无需操作」。
 
 关键信息
-（时间、金额、人名、单号、地址等，项目符号；没有就写「无」）
+- 最多 5 条，每条不超过 30 字；只列真正有用的时间、金额、人名、单号、链接。
+- 没有就写「无」。
 
 建议回复要点
-（1-3 条中文要点）
+- 只有当身份是「直接收件人」且邮件明确要求你行动时才输出；最多 2 条，每条不超过 25 字。
+- 其他身份不要输出这个小标题。
 
-身份规则（用户身份会写在邮件信息里）：
-- 如果用户是「仅抄送」或「不在收件人/抄送列表」：需要你做什么只写「你只是被抄送，通常无需操作」这类结论；不要输出「建议回复要点」这一段
-- 如果用户是「发件人」：需要你做什么写「这是你发出的邮件，无需操作」；不要输出「建议回复要点」这一段
-- 只有「直接收件人」且邮件确实要求行动时，才给「建议回复要点」
-
-只依据邮件内容，不要编造，不要输出思考过程。`
+不要复述原文，不要解释，不要输出思考过程。`
 
 const REPLY_SYSTEM = (
   language: string,
@@ -313,10 +315,11 @@ export class AiService {
 
   async summarize(message: MessageDetail, email?: string, signal?: AbortSignal): Promise<string> {
     const output = await this.complete(SUMMARY_SYSTEM, contextOf(message, email), signal)
+    const compact = compactSummary(output)
     const role = roleOf(message, email)
     // A reply suggestion for someone who was only copied is misleading; the
     // model sometimes still writes the section, so drop it deterministically.
-    return role === 'to' || role === 'unknown' ? output : stripReplySuggestions(output)
+    return role === 'to' || role === 'unknown' ? compact : stripReplySuggestions(compact)
   }
 
   async reply(
@@ -572,6 +575,35 @@ export function parseTaskJson(text: string): TaskSuggestion[] {
     })
   }
   return result.slice(0, 30)
+}
+
+/** Trim a summary to the four sections with hard bullet limits. */
+export function compactSummary(text: string): string {
+  const sections: { title: string; lines: string[] }[] = []
+  let current: { title: string; lines: string[] } = { title: '', lines: [] }
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    const heading = /^#{0,4}\s*(结论|需要你做什么|关键信息|建议回复要点)\s*[：:]?\s*$/.exec(line)
+    if (heading !== null) {
+      if (current.title !== '' || current.lines.length > 0) sections.push(current)
+      current = { title: heading[1] ?? '', lines: [] }
+    } else if (line !== '') {
+      current.lines.push(line.replace(/^[-*•]\s*/, '').trim())
+    }
+  }
+  if (current.title !== '' || current.lines.length > 0) sections.push(current)
+  if (sections.length === 0) return text.trim()
+
+  const limits: Record<string, number> = { 结论: 2, 需要你做什么: 3, 关键信息: 5, 建议回复要点: 2 }
+  const output: string[] = []
+  for (const section of sections) {
+    if (section.title === '') continue
+    const limit = limits[section.title] ?? 3
+    const lines = section.lines.filter((line) => line !== '').slice(0, limit)
+    if (lines.length === 0) continue
+    output.push(`${section.title}\n${lines.join('\n')}`)
+  }
+  return output.join('\n\n')
 }
 
 /** Remove the reply-suggestion section from a summary (CC-only mail). */

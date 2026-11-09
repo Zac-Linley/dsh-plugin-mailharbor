@@ -730,6 +730,9 @@
   flex-direction: column;
   gap: 10px;
   padding: 10px 12px;
+  max-height: min(44vh, 380px);
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .mailharbor-ai-summary section h4 {
@@ -750,8 +753,9 @@
 
 .mailharbor-ai-text {
   padding: 10px 12px;
-  max-height: 320px;
+  max-height: min(44vh, 320px);
   overflow: auto;
+  overscroll-behavior: contain;
   white-space: pre-wrap;
   font-size: 12.5px;
   line-height: 1.65;
@@ -2520,4 +2524,101 @@
   .thread-to {
     display: none;
   }
+}
+
+/* ---------- compact reader ---------- */
+
+.mailharbor-reader-head {
+  padding: 10px 16px 8px;
+  gap: 6px;
+}
+
+.mailharbor-reader-title h2 {
+  font-size: 15px;
+}
+
+.mailharbor-reader-meta.compact {
+  gap: 10px;
+  align-items: center;
+}
+
+.mailharbor-reader-meta.compact .who {
+  gap: 6px;
+}
+
+.mailharbor-reader-recipients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 11.5px;
+  color: var(--m-text-3);
+  padding: 0 2px;
+}
+
+.mailharbor-reader-actions {
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.mailharbor-reader-actions button {
+  height: 28px;
+  padding: 0 8px;
+}
+
+.mailharbor-attachments.compact {
+  display: flex;
+  gap: 6px;
+  padding: 6px 16px;
+  overflow-x: auto;
+  border-top: 1px solid var(--m-line-soft);
+  flex-wrap: nowrap;
+}
+
+.mailharbor-attachments.compact .mailharbor-attachment {
+  flex: none;
+  padding: 4px 8px;
+  border: 1px solid var(--m-line-soft);
+  border-radius: 6px;
+  max-width: 260px;
+}
+
+.mailharbor-reader-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.thread-who {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.thread-who strong {
+  max-width: 45%;
+}
+
+.thread-who .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.thread-date {
+  flex: none;
+}
+
+.mailharbor button.mailharbor-thread-head {
+  justify-content: flex-start;
+  padding: 7px 10px;
+  gap: 8px;
+}
+
+.mailharbor-thread-preview {
+  padding: 0 12px 8px 40px;
+}
+
+.mailharbor-thread-frame {
+  height: clamp(220px, 42vh, 420px);
 }

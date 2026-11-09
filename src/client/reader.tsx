@@ -89,6 +89,7 @@ export function Reader({
   const [loadImages, setLoadImages] = useState(false)
   const [details, setDetails] = useState<Record<string, MessageDetail>>({})
   const [expanded, setExpanded] = useState<string[]>([detail.id])
+  const [detailOpen, setDetailOpen] = useState(false)
   const selectedCard = useRef<HTMLDivElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -170,25 +171,39 @@ export function Reader({
           h(Icon, { name: 'check' }),
         ),
       ),
-      h(
-        'div',
-        { className: 'mailharbor-reader-meta' },
-        h(
-          'span',
-          { className: 'who' },
-          h(Avatar, { email: detail.from.address, size: 22 }),
-          h('strong', null, detail.from.name !== '' ? detail.from.name : detail.from.address),
-          detail.from.name !== '' ? h('span', null, `<${detail.from.address}>`) : null,
-        ),
-        h('span', null, longDate(detail.date)),
-        detail.backedUp === false ? h('span', { className: 'badge warn' }, '未备份') : null,
-      ),
-      h(
-        'div',
-        { className: 'mailharbor-reader-meta' },
-        h('span', null, `收件人: ${addressLine(detail.to) || '—'}`),
-        detail.cc.length === 0 ? null : h('span', null, `抄送: ${addressLine(detail.cc)}`),
-      ),
+      threaded
+        ? null
+        : h(
+            'div',
+            { className: 'mailharbor-reader-meta compact' },
+            h(
+              'span',
+              { className: 'who' },
+              h(Avatar, { email: detail.from.address, size: 22 }),
+              h('strong', null, detail.from.name !== '' ? detail.from.name : detail.from.address),
+              detail.from.name !== '' ? h('span', { className: 'small muted' }, detail.from.address) : null,
+            ),
+            h('span', { className: 'small muted' }, longDate(detail.date)),
+            detail.backedUp === false ? h('span', { className: 'badge warn' }, '未备份') : null,
+            h(
+              'button',
+              {
+                className: 'subtle small',
+                onClick: () => setDetailOpen(!detailOpen),
+                title: '收件人与抄送',
+              },
+              detailOpen ? '收起详情' : '详情',
+              h(Icon, { name: detailOpen ? 'chevronLeft' : 'chevronRight', size: 12 }),
+            ),
+          ),
+      threaded || !detailOpen
+        ? null
+        : h(
+            'div',
+            { className: 'mailharbor-reader-recipients' },
+            h('span', null, `收件人：${addressLine(detail.to) || '—'}`),
+            detail.cc.length === 0 ? null : h('span', null, `抄送：${addressLine(detail.cc)}`),
+          ),
       h(
         'div',
         { className: 'mailharbor-reader-actions' },
@@ -281,14 +296,9 @@ export function Reader({
                   'span',
                   { className: 'thread-who' },
                   h('strong', null, who.name !== '' ? who.name : who.address),
-                  h('span', { className: 'small muted' }, who.address),
+                  h('span', { className: 'small muted' }, `发给 ${addressLine(item.to)}`),
                 ),
-                h(
-                  'span',
-                  { className: 'small muted thread-to' },
-                  sentItem ? `发给 ${addressLine(item.to)}` : `发给 ${addressLine(item.to)}`,
-                ),
-                h('span', { className: 'small muted' }, longDate(item.date)),
+                h('span', { className: 'small muted thread-date' }, longDate(item.date)),
                 expandedItem
                   ? h(Icon, { name: 'chevronLeft', size: 14 })
                   : h(Icon, { name: 'chevronRight', size: 14 }),
@@ -335,11 +345,11 @@ export function Reader({
               })
             : h('pre', null, detail.text !== '' ? detail.text : '（无正文）'),
         ),
-    detail.attachments.length === 0
+    threaded || detail.attachments.length === 0
       ? null
       : h(
           'div',
-          { className: 'mailharbor-attachments' },
+          { className: 'mailharbor-attachments compact' },
           detail.attachments.map((file) =>
             h(
               'a',
