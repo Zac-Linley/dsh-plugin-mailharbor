@@ -133,7 +133,7 @@ export function MailPanel(): ReactNode {
   const [state, setState] = useState<AppState | null>(null)
   const [error, setError] = useState('')
   const [accountScope, setAccountScope] = useState<string | null>(null)
-  const [source, setSource] = useState<'local' | 'server'>('server')
+  const [source] = useState<'local' | 'server'>('local')
   const [mailbox, setMailbox] = useState('all')
   const [folders, setFolders] = useState<Folder[]>([])
   const [query, setQuery] = useState('')
@@ -145,8 +145,9 @@ export function MailPanel(): ReactNode {
   const [selected, setSelected] = useState<MessageDetail | null>(null)
   const [compose, setCompose] = useState<ComposeInit | null>(null)
   const [showAdd, setShowAdd] = useState(false)
-  const [showBackup, setShowBackup] = useState(false)
+  const [backupOpen, setBackupOpen] = useState(false)
   const [backup, setBackup] = useState<BackupStatus | null>(null)
+  const lastBackupRunning = useRef(false)
   const [toast, setToast] = useState('')
   const [narrow, setNarrow] = useState(() => matchesNarrow())
   const [railOpen, setRailOpen] = useState(false)
@@ -202,7 +203,6 @@ export function MailPanel(): ReactNode {
   // The tasks panel can ask the mail panel to open a source message.
   const openFromRequest = useCallback((detail: OpenMailRequest): void => {
     setAccountScope(detail.accountId)
-    setSource('local')
     setMailbox(detail.mailbox === '' ? 'all' : detail.mailbox)
     api
       .activateAccount(detail.accountId)
@@ -578,7 +578,6 @@ export function MailPanel(): ReactNode {
   }, [source])
 
   useEffect(() => {
-    if (accountScope === 'all' && source === 'server') setSource('local')
     setSelected(null)
     setAiInfo(null)
     setSearch('')
@@ -666,27 +665,61 @@ export function MailPanel(): ReactNode {
     }
   }, [])
 
-  // Backup progress polling while the dialog is open.
+  // Backup state polling: the sync popover and the auto-sync loop share it.
   useEffect(() => {
-    if (!showBackup || accountScope === null || isAll) return
+    if (accountScope === null || isAll) return
     let cancelled = false
     const poll = async (): Promise<void> => {
       try {
         const status = await api.backupStatus(accountScope)
-        if (!cancelled) setBackup(status)
+        if (cancelled) return
+        setBackup(status)
+        if (lastBackupRunning.current && !status.running) {
+          // A finished sync means new mail may be in the local backup.
+          refresh()
+        }
+        lastBackupRunning.current = status.running
       } catch {
-        // Keep the last status.
+        // Keep the last known status.
       }
     }
     void poll()
     const timer = window.setInterval(() => {
       void poll()
-    }, 1000)
+    }, 3000)
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [showBackup, accountScope, isAll])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountScope, isAll])
+
+  // Local-first: start an incremental sync on open, then keep syncing in the
+  // background at the configured interval.
+  useEffect(() => {
+    if (accountScope === null || isAll || state?.loggedIn !== true) return
+    let cancelled = false
+    const run = async (): Promise<void> => {
+      try {
+        const current = await api.backupStatus(accountScope)
+        if (cancelled || current.running) return
+        const started = await api.startBackup(accountScope)
+        if (!cancelled) setBackup(started.status)
+      } catch {
+        // Offline or logged out: browsing the existing backup still works.
+      }
+    }
+    void run()
+    const seconds = Math.max(60, state.settings.read.pollSeconds)
+    const timer = window.setInterval(() => {
+      void run()
+    }, seconds * 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountScope, isAll, state?.loggedIn])
 
   const messageKeyOf = (item: MessageSummary): string => `${item.accountId}:${source}:${item.id}`
 
@@ -877,7 +910,6 @@ export function MailPanel(): ReactNode {
       if (id !== 'all') await api.activateAccount(id)
       setAccountScope(id)
       setSelected(null)
-      if (id === 'all') setSource('local')
       refresh()
     } catch (caught) {
       setError(errorText(caught))
@@ -885,13 +917,14 @@ export function MailPanel(): ReactNode {
   }
 
   const startBackup = async (): Promise<void> => {
+    setBackupOpen(true)
     const owner =
       accountScope === null || isAll ? accounts[0] : accounts.find((item) => item.id === accountScope)
     if (owner === undefined) return
     try {
       const result = await api.startBackup(owner.id)
       setBackup(result.status)
-      setShowBackup(true)
+      setBackupOpen(true)
     } catch (caught) {
       setError(errorText(caught))
     }
@@ -933,7 +966,6 @@ export function MailPanel(): ReactNode {
           onDone: (next) => {
             setState(next)
             setAccountScope(next.activeAccountId)
-            setSource('local')
           },
         }),
       ),
@@ -1073,44 +1105,94 @@ export function MailPanel(): ReactNode {
       ),
       h(
         'div',
-        { className: 'mailharbor-segment', role: 'tablist' },
-        h(
-          'button',
-          { className: source === 'local' ? 'active' : '', onClick: () => setSource('local'), role: 'tab' },
-          '本地备份',
-        ),
+        { className: 'mailharbor-sync' },
         h(
           'button',
           {
-            className: source === 'server' ? 'active' : '',
+            className: 'ghost',
             onClick: () => {
-              if (isAll) {
-                notice('统一收件箱只支持本地备份，切换到单个账号可使用服务器实时')
-                return
-              }
-              setSource('server')
+              setBackupOpen(!backupOpen)
+              void api
+                .backupStatus(accountScope ?? undefined)
+                .then(setBackup)
+                .catch(() => undefined)
             },
-            role: 'tab',
-            title: isAll ? '统一收件箱只支持本地备份' : '读取服务器上的最新邮件',
+            title: '与服务器同步',
           },
-          '服务器实时',
+          backup?.running ? h('span', { className: 'mailharbor-spinner' }) : h(Icon, { name: 'refresh' }),
+          backup?.running ? '同步中…' : '同步',
+          h(Icon, { name: backupOpen ? 'chevronLeft' : 'chevronRight', size: 12 }),
         ),
+        backupOpen
+          ? h(
+              'div',
+              { className: 'mailharbor-sync-pop' },
+              h(
+                'div',
+                { className: 'mailharbor-sync-head' },
+                h('strong', null, backup?.running ? '正在同步' : '同步'),
+                h('span', { className: 'small muted' }, backup?.message ?? ''),
+              ),
+              backup !== null && backup.total > 0
+                ? h(
+                    'div',
+                    { className: 'tasks-bar' },
+                    h('span', {
+                      style: {
+                        width: `${String(
+                          Math.min(100, Math.round((backup.added / Math.max(1, backup.total)) * 100)),
+                        )}%`,
+                      },
+                    }),
+                  )
+                : null,
+              h(
+                'div',
+                { className: 'mailharbor-sync-stats' },
+                h('span', null, `新增 ${String(backup?.added ?? 0)}`),
+                h(
+                  'span',
+                  null,
+                  `上次成功 ${backup?.lastSuccessAt === null || backup?.lastSuccessAt === undefined ? '—' : new Date(backup.lastSuccessAt).toLocaleString()}`,
+                ),
+              ),
+              backup === null || backup.output.length === 0
+                ? null
+                : h('div', { className: 'mailharbor-sync-log' }, backup.output.slice(-6).join('\n')),
+              h(
+                'div',
+                { className: 'mailharbor-sync-actions' },
+                backup?.running
+                  ? h(
+                      'button',
+                      {
+                        className: 'ghost danger small',
+                        onClick: () => {
+                          void stopBackup()
+                        },
+                      },
+                      '停止同步',
+                    )
+                  : h(
+                      'button',
+                      {
+                        className: 'primary small',
+                        onClick: () => {
+                          void startBackup()
+                        },
+                      },
+                      '立即同步',
+                    ),
+                h('button', { className: 'subtle small', onClick: () => setBackupOpen(false) }, '收起'),
+              ),
+            )
+          : null,
       ),
       h('span', { className: 'spacer' }),
       h(
         'button',
         { className: 'ghost icon', title: '刷新列表', 'aria-label': '刷新列表', onClick: refresh },
         h(Icon, { name: 'refresh' }),
-      ),
-      h(
-        'button',
-        {
-          className: 'ghost',
-          onClick: () => void startBackup(),
-          title: isAll ? '备份当前活动账号' : '备份这个账号',
-        },
-        h(Icon, { name: 'archive' }),
-        '备份',
       ),
       h(
         'button',
@@ -1161,7 +1243,6 @@ export function MailPanel(): ReactNode {
                       className: `mailharbor-side-item${!isAll && item.id === accountScope ? ' active' : ''}`,
                       onClick: () => {
                         void switchAccount(item.id)
-                        setSource('server')
                         setMailbox('INBOX')
                       },
                     },
@@ -1449,7 +1530,7 @@ export function MailPanel(): ReactNode {
                           { className: 'small' },
                           aiInfo === null
                             ? source === 'local'
-                              ? '点顶部「备份」把服务器邮件同步下来。'
+                              ? '点右上角「同步」把服务器邮件拉下来。'
                               : '换一个文件夹或稍后刷新。'
                             : '换个说法，或直接输入关键词后按回车。',
                         ),
@@ -1508,7 +1589,7 @@ export function MailPanel(): ReactNode {
                   h(
                     'div',
                     { className: 'small' },
-                    loggedIn ? '已登录，可切换「服务器实时」查看最新邮件。' : '浏览本地备份不需要登录。',
+                    loggedIn ? '已登录，打开面板后会自动与服务器同步。' : '浏览本地备份不需要登录。',
                   ),
                 )
               : opening !== null && selected === null
@@ -1558,42 +1639,6 @@ export function MailPanel(): ReactNode {
               })
             : null,
         ),
-    showBackup && backup !== null
-      ? h(
-          Modal,
-          {
-            title: '备份',
-            onClose: () => setShowBackup(false),
-            footer: h(
-              'div',
-              { style: { display: 'flex', gap: '8px', width: '100%', alignItems: 'center' } },
-              h('span', { className: 'small muted' }, backup.running ? '备份进行中…' : backup.message),
-              h('span', { className: 'spacer' }),
-              backup.running
-                ? h('button', { className: 'ghost danger', onClick: () => void stopBackup() }, '停止备份')
-                : h('button', { className: 'primary', onClick: () => void startBackup() }, '开始备份'),
-              h('button', { className: 'ghost', onClick: () => setShowBackup(false) }, '关闭'),
-            ),
-          },
-          h(
-            'div',
-            { className: 'mailharbor-kv' },
-            h('dt', null, '开始时间'),
-            h('dd', null, backup.startedAt ?? '—'),
-            h('dt', null, '上次成功'),
-            h('dd', null, backup.lastSuccessAt ?? '—'),
-            h('dt', null, '新增'),
-            h('dd', null, String(backup.added)),
-            h('dt', null, '总数'),
-            h('dd', null, String(backup.total)),
-          ),
-          h(
-            'div',
-            { className: 'mailharbor-log' },
-            backup.output.length === 0 ? '（等待输出…）' : backup.output.join('\n'),
-          ),
-        )
-      : null,
     managerOpen
       ? h(
           Modal,

@@ -163,7 +163,7 @@ describe('MailPanel rendering', () => {
     expect(container.textContent).toContain('Alice')
   })
 
-  it('defaults to server and allows local browsing without a login', async () => {
+  it('opens the local backup without asking for a login', async () => {
     const app = state({
       accounts: [account],
       activeAccountId: account.id,
@@ -172,19 +172,7 @@ describe('MailPanel rendering', () => {
     })
     vi.stubGlobal('fetch', mockApi(app))
     await render(h(MailPanel))
-    // Server mode is the default, so a logged-out account asks for a login.
-    expect(container.textContent).toContain('登录 me@example.com')
-    const local = [...container.querySelectorAll('button')].find(
-      (button) => button.textContent === '本地备份',
-    )
-    expect(local).toBeDefined()
-    await act(async () => {
-      local?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-    // Local browsing is allowed while logged out.
     expect(container.textContent).not.toContain('登录 me@example.com')
+    expect(container.textContent).toContain('同步')
   })
 })

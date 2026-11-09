@@ -67,11 +67,14 @@ function AttachmentChips({
   source: 'local' | 'server'
   mailbox: string
 }): ReactNode {
+  const [expanded, setExpanded] = useState(false)
   if (detail.attachments.length === 0) return null
+  const shown = expanded ? detail.attachments : detail.attachments.slice(0, 3)
+  const hidden = detail.attachments.length - shown.length
   return h(
     'div',
     { className: 'mailharbor-attachment-chips' },
-    detail.attachments.map((file) =>
+    shown.map((file) =>
       h(
         'a',
         {
@@ -100,6 +103,15 @@ function AttachmentChips({
         h('span', { className: 'muted small' }, formatBytes(file.size)),
       ),
     ),
+    hidden > 0
+      ? h(
+          'button',
+          { className: 'subtle small', onClick: () => setExpanded(true) },
+          `+${String(hidden)} 个附件`,
+        )
+      : detail.attachments.length > 3
+        ? h('button', { className: 'subtle small', onClick: () => setExpanded(false) }, '收起附件')
+        : null,
   )
 }
 

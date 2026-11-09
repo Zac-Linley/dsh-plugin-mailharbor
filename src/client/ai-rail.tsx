@@ -121,7 +121,7 @@ export function AiRail({
   const [projectRoot, setProjectRoot] = useState('')
   const [projectBusy, setProjectBusy] = useState(false)
   const [projectWarnings, setProjectWarnings] = useState<string[]>([])
-  const [viewCard, setViewCard] = useState<AiCard | null>(null)
+  const [expandedCards, setExpandedCards] = useState<string[]>([])
   const list = useRef<HTMLDivElement>(null)
   const lastNonce = useRef(0)
   const key = detail === null ? '' : threadKey(detail, source)
@@ -318,6 +318,12 @@ export function AiRail({
     }
   }
 
+  const toggleCard = (card: AiCard): void => {
+    setExpandedCards((current) =>
+      current.includes(card.id) ? current.filter((id) => id !== card.id) : [...current, card.id],
+    )
+  }
+
   const copy = (card: AiCard): void => {
     void navigator.clipboard?.writeText(card.output).then(() => onNotice('已复制'))
   }
@@ -486,7 +492,11 @@ export function AiRail({
           card.kind === 'summary'
             ? h(
                 'div',
-                { className: 'mailharbor-ai-summary clamp' },
+                {
+                  className: expandedCards.includes(card.id)
+                    ? 'mailharbor-ai-summary'
+                    : 'mailharbor-ai-summary clamp',
+                },
                 summaryBlocks(card.output).map((block, index) =>
                   h(
                     'section',
@@ -548,7 +558,11 @@ export function AiRail({
                 )
               : null,
             h('span', { className: 'spacer' }),
-            h('button', { className: 'subtle', onClick: () => setViewCard(card) }, '展开全文'),
+            h(
+              'button',
+              { className: 'subtle', onClick: () => toggleCard(card) },
+              expandedCards.includes(card.id) ? '收起' : '展开全文',
+            ),
             h('button', { className: 'subtle', onClick: () => copy(card) }, '复制'),
           ),
         ),
@@ -571,38 +585,6 @@ export function AiRail({
         : null,
       error === '' ? null : h('div', { className: 'mailharbor-ai-error' }, error),
     ),
-    viewCard === null
-      ? null
-      : h(
-          Modal,
-          {
-            title: `${KIND_LABEL[viewCard.kind as Kind] ?? 'AI'} 全文`,
-            onClose: () => setViewCard(null),
-            wide: true,
-            footer: h(
-              'div',
-              { className: 'task-editor-foot' },
-              h('span', { className: 'small muted' }, new Date(viewCard.createdAt).toLocaleString()),
-              h('span', { className: 'spacer' }),
-              h('button', { className: 'ghost', onClick: () => setViewCard(null) }, '关闭'),
-              h('button', { className: 'primary', onClick: () => copy(viewCard) }, '复制全文'),
-            ),
-          },
-          h(
-            'div',
-            { className: 'mailharbor-ai-full' },
-            viewCard.kind === 'summary'
-              ? summaryBlocks(viewCard.output).map((block, index) =>
-                  h(
-                    'section',
-                    { key: `${block.title}:${String(index)}` },
-                    block.title === '' ? null : h('h4', null, block.title),
-                    h(Markdown, { text: block.body }),
-                  ),
-                )
-              : h(Markdown, { text: viewCard.output }),
-          ),
-        ),
     projectOpen
       ? h(
           Modal,
