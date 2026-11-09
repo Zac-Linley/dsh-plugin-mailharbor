@@ -426,6 +426,10 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       mailboxOfPayload(payload),
     )
     const config = runtime.current
+    const summaryLength =
+      payload.length === 'normal' || payload.length === 'detailed' || payload.length === 'brief'
+        ? payload.length
+        : config.ai.summaryLength
     const instruction = typeof payload.instruction === 'string' ? payload.instruction : ''
     const language = payload.language === 'en' ? 'en' : 'zh'
     const target = payload.target === 'en' ? 'en' : 'zh'
@@ -435,7 +439,8 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       let html: string | undefined
       let meta: Record<string, string> | undefined
       if (kind === 'summary') {
-        output = await ai.summarize(detail, account.email)
+        output = await ai.summarize(detail, account.email, summaryLength)
+        meta = { length: summaryLength }
       } else if (kind === 'reply') {
         output = await ai.reply(account, detail, { instruction, language })
         html = textToHtml(output)
@@ -576,8 +581,12 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       mailboxOfPayload(payload),
     )
     try {
-      const summary = await runtime.ai().summarize(detail, account.email)
-      return { summary, blocks: summaryBlocks(summary) }
+      const length =
+        payload.length === 'normal' || payload.length === 'detailed' || payload.length === 'brief'
+          ? payload.length
+          : runtime.current.ai.summaryLength
+      const summary = await runtime.ai().summarize(detail, account.email, length)
+      return { summary, blocks: summaryBlocks(summary), length }
     } catch (error) {
       throw aiHttpError(error)
     }
@@ -1026,6 +1035,7 @@ function settingsView(config: MailHarborConfig): SettingsView {
       provider: config.ai.provider,
       model: config.ai.model,
       styleSampleCount: config.ai.styleSampleCount,
+      summaryLength: config.ai.summaryLength,
     },
     read: { markOnOpen: config.read.markOnOpen, pollSeconds: config.read.pollSeconds },
     render: { listLimit: config.render.listLimit },

@@ -27,6 +27,7 @@ function config(overrides: Partial<MailHarborConfig['ai']> = {}): MailHarborConf
       model: 'deepseek-flash',
       styleSampleCount: 100,
       maxChars: 40000,
+      summaryLength: 'brief',
       ...overrides,
     },
     read: { markOnOpen: true, pollSeconds: 60 },

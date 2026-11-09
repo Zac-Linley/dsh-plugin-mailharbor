@@ -177,6 +177,8 @@ export interface BackupStatus {
   exitCode: number | null
 }
 
+export type AiSummaryLength = 'brief' | 'normal' | 'detailed'
+
 export interface SettingsView {
   dataDir: string
   configFile: string
@@ -188,6 +190,7 @@ export interface SettingsView {
     provider: string
     model: string
     styleSampleCount: number
+    summaryLength: AiSummaryLength
   }
   read: {
     markOnOpen: boolean
@@ -229,6 +232,8 @@ export interface AiCardMeta {
   /** Translation target or reply language. */
   target?: 'zh' | 'en'
   language?: 'zh' | 'en'
+  /** Summary depth for cards that carry one. */
+  length?: 'brief' | 'normal' | 'detailed'
 }
 
 export interface AiCard {

@@ -21,6 +21,7 @@ export function MailSettings(): ReactNode {
   const [aiEnabled, setAiEnabled] = useState(true)
   const [aiProvider, setAiProvider] = useState('deepseek-account')
   const [aiModel, setAiModel] = useState('deepseek-flash')
+  const [aiSummaryLength, setAiSummaryLength] = useState<'brief' | 'normal' | 'detailed'>('brief')
   const [aiModels, setAiModels] = useState<AiModels>({ providers: [] })
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null)
   const [styleText, setStyleText] = useState('')
@@ -46,6 +47,7 @@ export function MailSettings(): ReactNode {
         setAiEnabled(view.ai.enabled)
         setAiProvider(view.ai.provider)
         setAiModel(view.ai.model)
+        setAiSummaryLength(view.ai.summaryLength)
       })
       .catch((caught: unknown) => {
         if (!cancelled) setError(errorText(caught))
@@ -291,6 +293,25 @@ export function MailSettings(): ReactNode {
         'div',
         { className: 'mailharbor-card' },
         h('h3', null, 'AI'),
+        h(
+          'div',
+          { className: 'mailharbor-field' },
+          h('label', null, '摘要详细程度'),
+          h(
+            'select',
+            {
+              value: aiSummaryLength,
+              onChange: (event: { target: { value: string } }) => {
+                const next = event.target.value as 'brief' | 'normal' | 'detailed'
+                setAiSummaryLength(next)
+                void saveGeneral({ ai: { summaryLength: next } })
+              },
+            },
+            h('option', { value: 'brief' }, '简洁（默认，≤180 字）'),
+            h('option', { value: 'normal' }, '标准（≤400 字）'),
+            h('option', { value: 'detailed' }, '详细（更完整的背景与要点）'),
+          ),
+        ),
         h(Toggle, {
           checked: aiEnabled,
           onChange: (value) => {

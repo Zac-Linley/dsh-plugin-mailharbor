@@ -121,6 +121,7 @@ export function AiRail({
   const [projectRoot, setProjectRoot] = useState('')
   const [projectBusy, setProjectBusy] = useState(false)
   const [projectWarnings, setProjectWarnings] = useState<string[]>([])
+  const [viewCard, setViewCard] = useState<AiCard | null>(null)
   const list = useRef<HTMLDivElement>(null)
   const lastNonce = useRef(0)
   const key = detail === null ? '' : threadKey(detail, source)
@@ -485,7 +486,7 @@ export function AiRail({
           card.kind === 'summary'
             ? h(
                 'div',
-                { className: 'mailharbor-ai-summary' },
+                { className: 'mailharbor-ai-summary clamp' },
                 summaryBlocks(card.output).map((block, index) =>
                   h(
                     'section',
@@ -495,7 +496,7 @@ export function AiRail({
                   ),
                 ),
               )
-            : h('div', { className: 'mailharbor-ai-text' }, h(Markdown, { text: card.output })),
+            : h('div', { className: 'mailharbor-ai-text clamp' }, h(Markdown, { text: card.output })),
           h(
             'div',
             { className: 'mailharbor-ai-card-actions' },
@@ -514,6 +515,17 @@ export function AiRail({
                         '用这些要点回复',
                       )
                 })()
+              : null,
+            card.kind === 'summary' && card.meta?.length !== 'detailed'
+              ? h(
+                  'button',
+                  {
+                    className: 'ghost',
+                    disabled: generating !== null,
+                    onClick: () => void generate('summary', { length: 'detailed' }),
+                  },
+                  '展开详细',
+                )
               : null,
             card.kind === 'reply' || card.kind === 'translate'
               ? h(
@@ -536,6 +548,7 @@ export function AiRail({
                 )
               : null,
             h('span', { className: 'spacer' }),
+            h('button', { className: 'subtle', onClick: () => setViewCard(card) }, '展开全文'),
             h('button', { className: 'subtle', onClick: () => copy(card) }, '复制'),
           ),
         ),
@@ -558,6 +571,38 @@ export function AiRail({
         : null,
       error === '' ? null : h('div', { className: 'mailharbor-ai-error' }, error),
     ),
+    viewCard === null
+      ? null
+      : h(
+          Modal,
+          {
+            title: `${KIND_LABEL[viewCard.kind as Kind] ?? 'AI'} 全文`,
+            onClose: () => setViewCard(null),
+            wide: true,
+            footer: h(
+              'div',
+              { className: 'task-editor-foot' },
+              h('span', { className: 'small muted' }, new Date(viewCard.createdAt).toLocaleString()),
+              h('span', { className: 'spacer' }),
+              h('button', { className: 'ghost', onClick: () => setViewCard(null) }, '关闭'),
+              h('button', { className: 'primary', onClick: () => copy(viewCard) }, '复制全文'),
+            ),
+          },
+          h(
+            'div',
+            { className: 'mailharbor-ai-full' },
+            viewCard.kind === 'summary'
+              ? summaryBlocks(viewCard.output).map((block, index) =>
+                  h(
+                    'section',
+                    { key: `${block.title}:${String(index)}` },
+                    block.title === '' ? null : h('h4', null, block.title),
+                    h(Markdown, { text: block.body }),
+                  ),
+                )
+              : h(Markdown, { text: viewCard.output }),
+          ),
+        ),
     projectOpen
       ? h(
           Modal,

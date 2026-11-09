@@ -5,12 +5,15 @@ import { join } from 'node:path'
 import type { Account, CalDavSettings, ImapSettings, NewAccountInput, SmtpSettings } from '../shared/types.js'
 import { CONFIG_PATH, DATA_ROOT, accountAttachmentsDir, accountDataDir, accountMailDb } from './paths.js'
 
+export type SummaryLength = 'brief' | 'normal' | 'detailed'
+
 export interface AiSettings {
   enabled: boolean
   provider: string
   model: string
   styleSampleCount: number
   maxChars: number
+  summaryLength: SummaryLength
 }
 
 export interface ReadSettings {
@@ -67,6 +70,7 @@ const DEFAULTS = {
     model: 'deepseek-flash',
     styleSampleCount: 100,
     maxChars: 40000,
+    summaryLength: 'brief',
   },
   read: { markOnOpen: true, pollSeconds: 60 },
   render: { listLimit: 40 },
@@ -229,6 +233,10 @@ export function loadConfig(): MailHarborConfig {
       model: stringOr(aiRaw.model, DEFAULTS.ai.model),
       styleSampleCount: intOr(aiRaw.styleSampleCount, DEFAULTS.ai.styleSampleCount, 10, 200),
       maxChars: intOr(aiRaw.maxChars, DEFAULTS.ai.maxChars, 1000, 200000),
+      summaryLength:
+        aiRaw.summaryLength === 'normal' || aiRaw.summaryLength === 'detailed'
+          ? aiRaw.summaryLength
+          : 'brief',
     },
     read: {
       markOnOpen: readRaw.markOnOpen !== false,

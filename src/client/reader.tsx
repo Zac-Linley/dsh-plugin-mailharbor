@@ -58,6 +58,51 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function AttachmentChips({
+  detail,
+  source,
+  mailbox,
+}: {
+  detail: MessageDetail
+  source: 'local' | 'server'
+  mailbox: string
+}): ReactNode {
+  if (detail.attachments.length === 0) return null
+  return h(
+    'div',
+    { className: 'mailharbor-attachment-chips' },
+    detail.attachments.map((file) =>
+      h(
+        'a',
+        {
+          className: 'mailharbor-attachment',
+          key: file.id,
+          href:
+            source === 'server'
+              ? api.attachmentUrl({
+                  accountId: detail.accountId,
+                  source: 'server',
+                  mailbox,
+                  uid: detail.uid ?? '',
+                  part: file.id,
+                })
+              : api.attachmentUrl({
+                  accountId: detail.accountId,
+                  source: 'local',
+                  emailId: detail.id,
+                  attachmentId: file.id,
+                }),
+          download: file.filename,
+          title: file.filename,
+        },
+        h(Icon, { name: 'paperclip', size: 12 }),
+        h('span', { className: 'name' }, file.filename),
+        h('span', { className: 'muted small' }, formatBytes(file.size)),
+      ),
+    ),
+  )
+}
+
 export function Reader({
   detail,
   source,
@@ -88,7 +133,7 @@ export function Reader({
   const [plain, setPlain] = useState(false)
   const [loadImages, setLoadImages] = useState(false)
   const [details, setDetails] = useState<Record<string, MessageDetail>>({})
-  const [expanded, setExpanded] = useState<string[]>([detail.id])
+  const [openId, setOpenId] = useState<string | null>(detail.id)
   const [detailOpen, setDetailOpen] = useState(false)
   const selectedCard = useRef<HTMLDivElement>(null)
   const [busy, setBusy] = useState(false)
@@ -100,7 +145,7 @@ export function Reader({
 
   useEffect(() => {
     setDetails((current) => ({ ...current, [detail.id]: detail }))
-    setExpanded((current) => (current.includes(detail.id) ? current : [...current, detail.id]))
+    setOpenId(detail.id)
   }, [detail])
 
   useEffect(() => {
@@ -108,12 +153,11 @@ export function Reader({
   }, [detail.id])
 
   const toggleThread = (item: MessageSummary): void => {
-    const open = expanded.includes(item.id)
-    if (open) {
-      setExpanded(expanded.filter((id) => id !== item.id))
+    if (openId === item.id) {
+      setOpenId(null)
       return
     }
-    setExpanded([...expanded, item.id])
+    setOpenId(item.id)
     onSelectMessage?.(item)
     if (details[item.id] === undefined) {
       void loadDetail?.(item)
@@ -192,7 +236,8 @@ export function Reader({
                 onClick: () => setDetailOpen(!detailOpen),
                 title: '收件人与抄送',
               },
-              detailOpen ? '收起详情' : '详情',
+              h(Icon, { name: 'mail', size: 12 }),
+              detailOpen ? '收起收件人' : '收件人/抄送',
               h(Icon, { name: detailOpen ? 'chevronLeft' : 'chevronRight', size: 12 }),
             ),
           ),
@@ -276,7 +321,7 @@ export function Reader({
             `共 ${String(conversation.length)} 封 · 点击任意一封展开或收起`,
           ),
           conversation.map((item) => {
-            const expandedItem = expanded.includes(item.id)
+            const expandedItem = openId === item.id
             const itemDetail = details[item.id]
             const sentItem = isSentMailbox(mailbox) && item.to.length > 0
             const who = sentItem ? (item.to[0] ?? item.from) : item.from
@@ -307,6 +352,14 @@ export function Reader({
                 ? h(
                     'div',
                     { className: 'mailharbor-thread-body' },
+                    h(
+                      'div',
+                      { className: 'mailharbor-thread-recipients small muted' },
+                      h('span', null, `收件人：${addressLine(item.to) || '—'}`),
+                      itemDetail !== undefined && itemDetail.cc.length > 0
+                        ? h('span', null, `抄送：${addressLine(itemDetail.cc)}`)
+                        : null,
+                    ),
                     itemDetail === undefined
                       ? h(
                           'div',
@@ -316,20 +369,21 @@ export function Reader({
                         )
                       : h(
                           'div',
-                          { className: 'mailharbor-thread-frame' },
-                          h('iframe', {
-                            title: `邮件正文 ${item.id}`,
-                            sandbox: '',
-                            srcDoc: srcDoc(itemDetail, loadImages),
-                            referrerPolicy: 'no-referrer',
-                          }),
+                          null,
+                          h(
+                            'div',
+                            { className: 'mailharbor-thread-frame' },
+                            h('iframe', {
+                              title: `邮件正文 ${item.id}`,
+                              sandbox: '',
+                              srcDoc: srcDoc(itemDetail, loadImages),
+                              referrerPolicy: 'no-referrer',
+                            }),
+                          ),
+                          h(AttachmentChips, { detail: itemDetail, source, mailbox }),
                         ),
                   )
-                : h(
-                    'div',
-                    { className: 'mailharbor-thread-preview small muted' },
-                    item.snippet !== '' ? item.snippet : '(无预览)',
-                  ),
+                : null,
             )
           }),
         )
@@ -345,40 +399,6 @@ export function Reader({
               })
             : h('pre', null, detail.text !== '' ? detail.text : '（无正文）'),
         ),
-    threaded || detail.attachments.length === 0
-      ? null
-      : h(
-          'div',
-          { className: 'mailharbor-attachments compact' },
-          detail.attachments.map((file) =>
-            h(
-              'a',
-              {
-                className: 'mailharbor-attachment',
-                key: file.id,
-                href:
-                  source === 'server'
-                    ? api.attachmentUrl({
-                        accountId: detail.accountId,
-                        source: 'server',
-                        mailbox,
-                        uid: detail.uid ?? '',
-                        part: file.id,
-                      })
-                    : api.attachmentUrl({
-                        accountId: detail.accountId,
-                        source: 'local',
-                        emailId: detail.id,
-                        attachmentId: file.id,
-                      }),
-                download: file.filename,
-                title: file.filename,
-              },
-              h(Icon, { name: 'paperclip', size: 14 }),
-              h('span', { className: 'name' }, file.filename),
-              h('span', { className: 'muted small' }, formatBytes(file.size)),
-            ),
-          ),
-        ),
+    threaded ? null : h(AttachmentChips, { detail, source, mailbox }),
   )
 }

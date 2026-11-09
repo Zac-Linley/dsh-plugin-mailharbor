@@ -216,6 +216,7 @@ export const api = {
     instruction?: string
     language?: 'zh' | 'en'
     target?: 'zh' | 'en'
+    length?: 'brief' | 'normal' | 'detailed'
     source: 'local' | 'server'
     id: string
     mailbox: string

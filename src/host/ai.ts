@@ -31,28 +31,60 @@ export interface AiDeps {
 const TIMEOUT_MS = 90_000
 const MAX_PROMPT_CHARS = 40_000
 
-const SUMMARY_SYSTEM = `你是邮件助理，服务于中文用户。用简体中文，简洁优先，总长不超过 180 字。
+type SummaryLength = 'brief' | 'normal' | 'detailed'
+
+const SUMMARY_RULES: Record<
+  SummaryLength,
+  { total: string; conclusion: string; actions: string; facts: string; replies: string }
+> = {
+  brief: {
+    total: '总长不超过 180 字',
+    conclusion: '一句话（不超过 40 字）',
+    actions: '最多 3 条，每条不超过 20 字',
+    facts: '最多 5 条，每条不超过 30 字',
+    replies: '最多 2 条，每条不超过 25 字',
+  },
+  normal: {
+    total: '总长不超过 400 字',
+    conclusion: '一到两句话（不超过 60 字）',
+    actions: '最多 5 条，每条不超过 25 字',
+    facts: '最多 8 条，每条不超过 40 字',
+    replies: '最多 3 条，每条不超过 30 字',
+  },
+  detailed: {
+    total: '不要写成报告，但仍以事实为主',
+    conclusion: '一句话（不超过 100 字），可以补充背景',
+    actions: '最多 6 条，每条不超过 35 字',
+    facts: '最多 10 条，每条不超过 50 字',
+    replies: '最多 4 条，每条不超过 40 字',
+  },
+}
+
+function summarySystem(length: SummaryLength): string {
+  const rules = SUMMARY_RULES[length]
+  return `你是邮件助理，服务于中文用户。用简体中文，简洁优先，${rules.total}。
 
 严格按下面四个小标题输出，不要输出其他内容：
 
 结论
-一句话（不超过 40 字）说明这是什么邮件、谁要做什么。
+${rules.conclusion}说明这是什么邮件、谁要做什么。
 
 需要你做什么
-- 最多 3 条，每条不超过 20 字；没有就只写「无需操作」。
+- ${rules.actions}；没有就只写「无需操作」。
 - 如果身份是「仅抄送」，只写「你只是被抄送，通常无需操作」。
 - 如果身份是「发件人」，只写「这是你发出的邮件，无需操作」。
 - 如果身份是「不在收件人/抄送列表」，只写「你不在收件人列表，通常无需操作」。
 
 关键信息
-- 最多 5 条，每条不超过 30 字；只列真正有用的时间、金额、人名、单号、链接。
+- ${rules.facts}；只列真正有用的时间、金额、人名、单号、链接。
 - 没有就写「无」。
 
 建议回复要点
-- 只有当身份是「直接收件人」且邮件明确要求你行动时才输出；最多 2 条，每条不超过 25 字。
+- 只有当身份是「直接收件人」且邮件明确要求你行动时才输出；${rules.replies}。
 - 其他身份不要输出这个小标题。
 
 不要复述原文，不要解释，不要输出思考过程。`
+}
 
 const REPLY_SYSTEM = (
   language: string,
@@ -313,9 +345,15 @@ export class AiService {
     return trimmed
   }
 
-  async summarize(message: MessageDetail, email?: string, signal?: AbortSignal): Promise<string> {
-    const output = await this.complete(SUMMARY_SYSTEM, contextOf(message, email), signal)
-    const compact = compactSummary(output)
+  async summarize(
+    message: MessageDetail,
+    email?: string,
+    length?: SummaryLength,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const depth = length ?? this.deps.config().ai.summaryLength
+    const output = await this.complete(summarySystem(depth), contextOf(message, email), signal)
+    const compact = compactSummary(output, depth)
     const role = roleOf(message, email)
     // A reply suggestion for someone who was only copied is misleading; the
     // model sometimes still writes the section, so drop it deterministically.
@@ -578,7 +616,7 @@ export function parseTaskJson(text: string): TaskSuggestion[] {
 }
 
 /** Trim a summary to the four sections with hard bullet limits. */
-export function compactSummary(text: string): string {
+export function compactSummary(text: string, length: SummaryLength = 'brief'): string {
   const sections: { title: string; lines: string[] }[] = []
   let current: { title: string; lines: string[] } = { title: '', lines: [] }
   for (const raw of text.split(/\r?\n/)) {
@@ -594,7 +632,12 @@ export function compactSummary(text: string): string {
   if (current.title !== '' || current.lines.length > 0) sections.push(current)
   if (sections.length === 0) return text.trim()
 
-  const limits: Record<string, number> = { 结论: 2, 需要你做什么: 3, 关键信息: 5, 建议回复要点: 2 }
+  const profiles: Record<SummaryLength, Record<string, number>> = {
+    brief: { 结论: 2, 需要你做什么: 3, 关键信息: 5, 建议回复要点: 2 },
+    normal: { 结论: 3, 需要你做什么: 5, 关键信息: 8, 建议回复要点: 3 },
+    detailed: { 结论: 4, 需要你做什么: 6, 关键信息: 10, 建议回复要点: 4 },
+  }
+  const limits = profiles[length] ?? profiles.brief
   const output: string[] = []
   for (const section of sections) {
     if (section.title === '') continue
