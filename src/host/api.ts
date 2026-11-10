@@ -142,9 +142,14 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       const items = await listServer(runtime, account, mailbox, query, limit, offset)
       return { ...items, offset, limit }
     }
-    const page = runtime
-      .database(account)
-      .list({ mailbox: mailbox === '' ? 'all' : mailbox, query, offset, limit })
+    const unreadOnly = url.searchParams.get('unread') === '1'
+    const page = runtime.database(account).list({
+      mailbox: mailbox === '' ? 'all' : mailbox,
+      query,
+      offset,
+      limit,
+      ...(unreadOnly ? { unread: unreadKeys(runtime, account) } : {}),
+    })
     return { ...page, items: page.items.map((item) => localSummary(runtime, account, item)) }
   })
 
@@ -254,22 +259,15 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       requested === null || requested === '' || requested === 'all'
         ? runtime.current.accounts.filter((item) => item.enabled !== false)
         : [accountById(runtime, requested)]
-    let server = 0
-    let answered = 0
-    await Promise.all(
-      accounts.map(async (account) => {
-        if (!runtime.hasCredentials(account)) return
-        try {
-          const result = await runtime.provider(account).unseen()
-          server += result.count
-          answered += 1
-        } catch {
-          // An unreachable server falls back to the local counter.
-        }
-      }),
-    )
-    if (answered > 0) return { unread: server, source: 'server' }
-    const local = accounts.reduce((sum, account) => sum + runtime.readState(account).count(), 0)
+    // The panel shows the local backup, so its badge must count the same
+    // unread keys the list renders (kept in sync from IMAP flags).
+    const local = accounts.reduce((sum, account) => {
+      try {
+        return sum + runtime.database(account).countUnread(unreadKeys(runtime, account))
+      } catch {
+        return sum
+      }
+    }, 0)
     return { unread: local, source: 'local' }
   })
 
@@ -1076,6 +1074,19 @@ function projectView(project: ProjectRecord): Project {
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   }
+}
+
+function unreadKeys(runtime: MailHarborRuntime, account: Account): { mids: string[]; ids: number[] } {
+  const mids: string[] = []
+  const ids: number[] = []
+  for (const key of runtime.readState(account).list()) {
+    if (key.startsWith('mid:')) mids.push(key.slice(4))
+    else if (key.startsWith('local:')) {
+      const id = Number(key.slice(6))
+      if (Number.isFinite(id)) ids.push(id)
+    }
+  }
+  return { mids, ids }
 }
 
 function localSummary(runtime: MailHarborRuntime, account: Account, row: MessageSummary): MessageSummary {

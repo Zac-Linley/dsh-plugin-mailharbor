@@ -28,7 +28,7 @@ export function MailIcon(): ReactNode {
       if (cancelled) return
       timer = window.setTimeout(() => {
         void poll().finally(schedule)
-      }, 60_000)
+      }, 30_000)
     }
     schedule()
     return () => {

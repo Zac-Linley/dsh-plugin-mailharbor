@@ -77,11 +77,72 @@ export class BackupEngine {
   private readonly runtime: AccountRuntime
   private readonly credentials: ImapCredentials
   readonly batchSize: number
+  private readonly onFlags: ((entries: { key: string; unread: boolean }[]) => void) | undefined
 
-  constructor(runtime: AccountRuntime, credentials: ImapCredentials, options: { batchSize?: number } = {}) {
+  constructor(
+    runtime: AccountRuntime,
+    credentials: ImapCredentials,
+    options: { batchSize?: number; onFlags?: (entries: { key: string; unread: boolean }[]) => void } = {},
+  ) {
     this.runtime = runtime
     this.credentials = credentials
     this.batchSize = options.batchSize ?? BATCH
+    this.onFlags = options.onFlags
+  }
+
+  /** Mirror IMAP \Seen flags into the local unread store. */
+  private async reconcileReadState(client: ImapFlow): Promise<void> {
+    if (this.onFlags === undefined) return
+    const exists = Number((client.mailbox as { exists?: number } | undefined)?.exists ?? 0)
+    if (exists === 0) return
+    const entries = new Map<string, boolean>()
+    const add = (messageId: string, unread: boolean): void => {
+      if (messageId !== '') entries.set(`mid:${messageId}`, unread)
+    }
+    const flagsOf = (flags: unknown): string[] =>
+      [...((flags ?? []) as Iterable<unknown>)].map((flag) => String(flag).toLowerCase())
+
+    // Recent window: catches messages that were read (or unread) elsewhere.
+    const start = Math.max(1, exists - 299)
+    try {
+      for await (const message of client.fetch(`${String(start)}:${String(exists)}`, {
+        uid: true,
+        envelope: true,
+        flags: true,
+      })) {
+        const messageId = normalizeId((message as { envelope?: { messageId?: string } }).envelope?.messageId)
+        add(messageId, !flagsOf(message.flags).includes('\\seen'))
+      }
+    } catch {
+      // A partial window is still useful.
+    }
+
+    // Older unread messages anywhere in the mailbox: the window above may not
+    // reach them, and the sidebar badge must match what the list shows.
+    try {
+      const unseen = await client.search({ seen: false }, { uid: true })
+      const uids = (Array.isArray(unseen) ? unseen : []).map(Number).filter((uid) => Number.isFinite(uid))
+      for (let index = 0; index < uids.length; index += 200) {
+        const range = uids.slice(index, index + 200).join(',')
+        if (range === '') continue
+        for await (const message of client.fetch(
+          range,
+          { uid: true, envelope: true, flags: true },
+          { uid: true },
+        )) {
+          const messageId = normalizeId(
+            (message as { envelope?: { messageId?: string } }).envelope?.messageId,
+          )
+          add(messageId, true)
+        }
+      }
+    } catch {
+      // Search is an optimisation; the recent window already synced flags.
+    }
+
+    if (entries.size > 0) {
+      this.onFlags([...entries.entries()].map(([key, unread]) => ({ key, unread })))
+    }
   }
 
   private attachmentsDir(): string {
@@ -257,6 +318,7 @@ export class BackupEngine {
             abortIfNeeded(signal)
             const batch = uids.slice(offset, offset + this.batchSize)
             db.exec('BEGIN')
+            const flagEntries: { key: string; unread: boolean }[] = []
             try {
               let batchLastUid = committedUid
               for await (const message of client.fetch(
@@ -277,6 +339,13 @@ export class BackupEngine {
                   boxAdded += added
                   newCount += added
                   batchLastUid = Math.max(batchLastUid, Number(message.uid))
+                  const messageId = normalizeId(parsed.messageId ?? '')
+                  if (messageId !== '') {
+                    const flags = [...((message.flags ?? []) as Iterable<unknown>)].map((flag) =>
+                      String(flag).toLowerCase(),
+                    )
+                    flagEntries.push({ key: `mid:${messageId}`, unread: !flags.includes('\\seen') })
+                  }
                 } catch (error) {
                   failCount += 1
                   emit({
@@ -287,6 +356,7 @@ export class BackupEngine {
               }
               this.saveState(db, path, uidValidity, batchLastUid)
               db.exec('COMMIT')
+              if (flagEntries.length > 0) this.onFlags?.(flagEntries)
               committedUid = batchLastUid
               emit({ mailbox: path, added: boxAdded, message: `${path}: 已新增 ${String(boxAdded)} 封` })
             } catch (error) {
@@ -294,6 +364,7 @@ export class BackupEngine {
               throw error
             }
           }
+          if (path.toUpperCase() === 'INBOX') await this.reconcileReadState(client)
           mailboxes.push({ name: path, added: boxAdded })
           emit({ mailbox: path, added: boxAdded, message: `${path}: 新增 ${String(boxAdded)} 封` })
         } finally {

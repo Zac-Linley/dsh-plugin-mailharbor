@@ -89,6 +89,11 @@ export function ensureMailSchema(file: string): void {
   }
 }
 
+export interface UnreadKeys {
+  mids: string[]
+  ids: number[]
+}
+
 export interface ListQuery {
   mailbox?: string
   query?: string
@@ -96,6 +101,8 @@ export interface ListQuery {
   limit?: number
   since?: string
   order?: 'newest' | 'oldest'
+  /** Only messages whose key is in the local unread set. */
+  unread?: UnreadKeys
 }
 
 export interface MailDatabaseOptions {
@@ -219,6 +226,23 @@ export class MailDatabase {
       where.push('e.date >= ?')
       params.push(query.since)
     }
+    if (query.unread !== undefined) {
+      const mids = query.unread.mids.slice(0, 500)
+      const ids = query.unread.ids.slice(0, 500)
+      if (mids.length === 0 && ids.length === 0) {
+        return { items: [], total: 0, offset, limit }
+      }
+      const parts: string[] = []
+      if (mids.length > 0) {
+        parts.push(`e.message_id IN (${mids.map(() => '?').join(',')})`)
+        params.push(...mids)
+      }
+      if (ids.length > 0) {
+        parts.push(`e.id IN (${ids.map(() => '?').join(',')})`)
+        params.push(...ids)
+      }
+      where.push(`(${parts.join(' OR ')})`)
+    }
     const text = String(query.query ?? '').trim()
     if (text !== '') {
       const tokens = text.split(/\s+/).filter(Boolean)
@@ -317,6 +341,31 @@ export class MailDatabase {
       .prepare(`${columns} FROM emails e ${clause} ORDER BY e.date DESC, e.id DESC LIMIT ?`)
       .all(...params, limit)
     return { items: rows.map((row) => rowToSummary(row as Record<string, unknown>)), total, offset: 0, limit }
+  }
+
+  /** Number of unread keys that still exist in this backup. */
+  countUnread(keys: UnreadKeys): number {
+    const mids = keys.mids.slice(0, 500)
+    const ids = keys.ids.slice(0, 500)
+    if (mids.length === 0 && ids.length === 0) return 0
+    const parts: string[] = []
+    const params: (string | number)[] = []
+    if (mids.length > 0) {
+      parts.push(`message_id IN (${mids.map(() => '?').join(',')})`)
+      params.push(...mids)
+    }
+    if (ids.length > 0) {
+      parts.push(`id IN (${ids.map(() => '?').join(',')})`)
+      params.push(...ids)
+    }
+    try {
+      const row = this.open()
+        .prepare(`SELECT COUNT(*) AS count FROM emails WHERE ${parts.join(' OR ')}`)
+        .get(...params)
+      return Number(row?.count ?? 0)
+    } catch {
+      return 0
+    }
   }
 
   get(localId: number): MessageDetail | undefined {

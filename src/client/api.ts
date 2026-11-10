@@ -101,6 +101,7 @@ export interface ListParams {
   query?: string
   offset?: number
   limit?: number
+  unread?: boolean
 }
 
 export const api = {
@@ -109,7 +110,10 @@ export const api = {
   folders: (params: { accountId?: string | null; source: 'local' | 'server' }) =>
     request<{ items: { name: string; label?: string; count: number }[] }>(`folders${query(params)}`),
 
-  messages: (params: ListParams) => request<Page<MessageSummary>>(`messages${query({ ...params })}`),
+  messages: (params: ListParams) =>
+    request<Page<MessageSummary>>(
+      `messages${query({ ...params, unread: params.unread === true ? 1 : undefined })}`,
+    ),
 
   message: (params: { id: string; accountId?: string | null; source: 'local' | 'server'; mailbox: string }) =>
     request<MessageDetail>(`messages/${encodeURIComponent(params.id)}${query({ ...params })}`),

@@ -2758,3 +2758,21 @@
 .mailharbor-ai-card {
   flex: none;
 }
+
+.mailharbor-unread-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 10px 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--m-accent-soft);
+  color: var(--m-text-2);
+  font-size: 11.5px;
+  text-align: left;
+}
+
+.mailharbor-unread-banner:hover {
+  background: var(--m-accent-soft);
+  color: var(--m-text);
+}

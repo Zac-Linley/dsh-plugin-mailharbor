@@ -278,7 +278,11 @@ export class MailHarborRuntime {
       exitCode: null,
     }
     const job: BackupJob = { status, controller, promise: Promise.resolve() }
-    const engine = new BackupEngine(accountRuntime(account), this.credentialsFor(account))
+    const engine = new BackupEngine(accountRuntime(account), this.credentialsFor(account), {
+      onFlags: (entries) => {
+        this.readState(account).sync(entries)
+      },
+    })
     job.promise = (async () => {
       try {
         const result = await engine.run({

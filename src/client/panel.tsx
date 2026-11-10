@@ -184,6 +184,8 @@ export function MailPanel(): ReactNode {
   const [managerBusy, setManagerBusy] = useState(false)
   const [aiSearching, setAiSearching] = useState(false)
   const [opening, setOpening] = useState<string | null>(null)
+  const [unreadOnly, setUnreadOnly] = useState(false)
+  const [unreadTotal, setUnreadTotal] = useState(0)
   const [aiElapsed, setAiElapsed] = useState(0)
   const hoverTimer = useRef<number | null>(null)
   const folderPrefetchTimers = useRef<number[]>([])
@@ -583,6 +585,19 @@ export function MailPanel(): ReactNode {
     setSearch('')
   }, [accountScope, source])
 
+  useEffect(() => {
+    let cancelled = false
+    api
+      .unread(accountScope)
+      .then((result) => {
+        if (!cancelled) setUnreadTotal(result.unread)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [accountScope, tick])
+
   // Message page (or drafts list).
   useEffect(() => {
     if (accountScope === null) return
@@ -612,14 +627,21 @@ export function MailPanel(): ReactNode {
         cancelled = true
       }
     }
-    const pageKey = `${accountScope}:${source}:${mailbox}:${search}:${String(limit)}`
+    const pageKey = `${accountScope}:${source}:${mailbox}:${search}:${String(limit)}:${unreadOnly ? 'u' : 'a'}`
     const cachedPage = pageCache.get(pageKey) ?? readDisk<Page<MessageSummary>>(`page.${pageKey}`)
     if (cachedPage !== null) {
       setPage(cachedPage)
       setLoading(false)
     }
     api
-      .messages({ accountId: accountScope, source, mailbox, query: search, limit })
+      .messages({
+        accountId: accountScope,
+        source,
+        mailbox,
+        query: search,
+        limit,
+        unread: unreadOnly,
+      })
       .then((result) => {
         if (!cancelled) {
           setPage(result)
@@ -652,7 +674,7 @@ export function MailPanel(): ReactNode {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountScope, source, mailbox, search, limit, tick])
+  }, [accountScope, source, mailbox, search, limit, tick, unreadOnly])
 
   // Narrow layout follows the viewport.
   useEffect(() => {
@@ -781,6 +803,7 @@ export function MailPanel(): ReactNode {
         try {
           await api.setRead({ id: detail.id, accountId: owner, source: ownerSource, mailbox, read: true })
           setSelected({ ...detail, unread: false })
+          setUnreadTotal((current) => Math.max(0, current - 1))
           setPage((current) => ({
             ...current,
             items: current.items.map((row) => (row.id === item.id ? { ...row, unread: false } : row)),
@@ -1311,6 +1334,19 @@ export function MailPanel(): ReactNode {
               h(
                 'button',
                 {
+                  className: unreadOnly ? 'ghost active' : 'ghost',
+                  title: unreadTotal > 0 ? `${String(unreadTotal)} 封未读` : '只看未读',
+                  onClick: () => {
+                    setUnreadOnly(!unreadOnly)
+                    setSelected(null)
+                  },
+                },
+                h(Icon, { name: 'mail', size: 14 }),
+                unreadTotal > 0 ? `未读 ${String(unreadTotal)}` : '未读',
+              ),
+              h(
+                'button',
+                {
                   className: selectMode ? 'ghost active' : 'ghost',
                   title: '选择多封邮件加入项目',
                   onClick: () => {
@@ -1412,6 +1448,15 @@ export function MailPanel(): ReactNode {
                     },
                     '取消',
                   ),
+                )
+              : null,
+            unreadTotal > 0 && !unreadOnly && search === ''
+              ? h(
+                  'button',
+                  { className: 'mailharbor-unread-banner', onClick: () => setUnreadOnly(true) },
+                  h(Icon, { name: 'mail', size: 13 }),
+                  `有 ${String(unreadTotal)} 封未读邮件 · 只看未读`,
+                  h(Icon, { name: 'chevronRight', size: 12 }),
                 )
               : null,
             loading && items.length > 0 && !showingDrafts
@@ -1612,7 +1657,13 @@ export function MailPanel(): ReactNode {
                     detail: selected,
                     source,
                     mailbox,
-                    onChanged: (patch) => setSelected({ ...selected, ...patch }),
+                    onChanged: (patch) => {
+                      setSelected({ ...selected, ...patch })
+                      void api
+                        .unread(selected.accountId)
+                        .then((result) => setUnreadTotal(result.unread))
+                        .catch(() => undefined)
+                    },
                     onReply: (mode) => startCompose(mode),
                     onAiAction: requestAi,
                     onExtractTasks: () => void extractTasks(),
