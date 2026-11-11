@@ -468,6 +468,34 @@ export class ImapProvider {
     })
   }
 
+  /** Append a message to the account's Drafts mailbox. */
+  async appendDraft(raw: Buffer): Promise<{ mailbox: string; uid: number }> {
+    const boxes = await this.mailboxes()
+    const box =
+      boxes.find((item) => String(item.specialUse ?? '').toLowerCase() === '\\drafts') ??
+      boxes.find((item) => /drafts|草稿/i.test(item.name)) ??
+      boxes.find((item) => item.name.toLowerCase() === 'drafts')
+    const path = box?.path ?? 'Drafts'
+    return this.run(async (client) => {
+      const result = await client.append(path, raw, ['\\Draft'])
+      if (result === false) throw new Error('服务器拒绝保存草稿')
+      return { mailbox: path, uid: Number(result.uid) }
+    })
+  }
+
+  /** Delete one message (used when replacing a mirrored draft). */
+  async deleteMessage(mailbox: string, uid: number): Promise<void> {
+    return this.run(async (client) => {
+      const lock = await client.getMailboxLock(mailbox)
+      try {
+        // messageDelete issues EXPUNGE for the deleted range.
+        await client.messageDelete(String(uid), { uid: true })
+      } finally {
+        lock.release()
+      }
+    })
+  }
+
   /** Move one message to another mailbox (server-side). */
   async move(mailbox: string, uid: number, target: string): Promise<void> {
     return this.run(async (client) => {

@@ -95,23 +95,28 @@ export function Composer({
     setHasBody((editor.current?.innerHTML ?? '').trim() !== '')
   }
 
-  const saveNow = async (): Promise<boolean> => {
+  const saveNow = async (remote = false): Promise<boolean> => {
     if (to.trim() === '' && subject.trim() === '' && html().trim() === '') return false
     try {
-      const { draft } = await api.saveDraft(account.id, {
-        ...(draftId === undefined ? {} : { id: draftId }),
-        to,
-        cc,
-        bcc,
-        subject,
-        html: html(),
-        attachments,
-        ...(initial.inReplyTo === undefined ? {} : { inReplyTo: initial.inReplyTo }),
-        ...(initial.references === undefined ? {} : { references: initial.references }),
-      })
+      const { draft, syncError } = await api.saveDraft(
+        account.id,
+        {
+          ...(draftId === undefined ? {} : { id: draftId }),
+          to,
+          cc,
+          bcc,
+          subject,
+          html: html(),
+          attachments,
+          ...(initial.inReplyTo === undefined ? {} : { inReplyTo: initial.inReplyTo }),
+          ...(initial.references === undefined ? {} : { references: initial.references }),
+        },
+        { remote },
+      )
       setDraftId(draft.id)
       setSavedAt(new Date())
       setDirty(0)
+      if (syncError !== undefined) setError(`已存到本地，服务器同步失败：${syncError}`)
       return true
     } catch {
       return false
@@ -133,7 +138,7 @@ export function Composer({
   const close = (): void => {
     if (closing.current) return
     closing.current = true
-    void saveNow().finally(() => {
+    void saveNow(true).finally(() => {
       setDirty(0)
       closing.current = false
       onClose()
@@ -227,9 +232,9 @@ export function Composer({
   const saveDraft = async (): Promise<void> => {
     setBusy(true)
     setError('')
-    const ok = await saveNow()
+    const ok = await saveNow(true)
     setBusy(false)
-    if (ok) onSent('草稿已保存')
+    if (ok) onSent('草稿已保存并同步到服务器')
     else setError('草稿保存失败')
   }
 

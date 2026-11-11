@@ -185,10 +185,10 @@ export const api = {
   drafts: (accountId?: string | null) =>
     request<{ items: Draft[] }>(`drafts${query({ accountId: accountId ?? null })}`),
 
-  saveDraft: (accountId: string | null, draft: Partial<Draft>) =>
-    request<{ draft: Draft }>(`drafts${query({ accountId: accountId ?? null })}`, {
+  saveDraft: (accountId: string | null, draft: Partial<Draft>, options: { remote?: boolean } = {}) =>
+    request<{ draft: Draft; syncError?: string }>(`drafts${query({ accountId: accountId ?? null })}`, {
       method: 'POST',
-      body: JSON.stringify(draft),
+      body: JSON.stringify({ ...draft, ...(options.remote === true ? { remote: true } : {}) }),
     }),
 
   deleteDraft: (id: string, accountId?: string | null) =>

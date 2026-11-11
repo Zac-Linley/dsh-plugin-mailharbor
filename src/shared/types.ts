@@ -154,6 +154,9 @@ export interface Draft extends DraftInput {
   id: string
   accountId: string
   updatedAt: string
+  /** UID of the mirrored IMAP draft, when it was synced to the server. */
+  remoteUid?: number
+  remoteMailbox?: string
 }
 
 export interface OutgoingAttachment {

@@ -84,6 +84,16 @@ export class DraftStore {
         : [],
       inReplyTo: text(input.inReplyTo),
       references: text(input.references),
+      ...(input.remoteUid === undefined
+        ? existing?.remoteUid === undefined
+          ? {}
+          : { remoteUid: existing.remoteUid }
+        : { remoteUid: Number(input.remoteUid) }),
+      ...(input.remoteMailbox === undefined
+        ? existing?.remoteMailbox === undefined
+          ? {}
+          : { remoteMailbox: existing.remoteMailbox }
+        : { remoteMailbox: text(input.remoteMailbox) }),
     }
     if (existing !== undefined) {
       Object.assign(existing, fields, { updatedAt: now })

@@ -29,6 +29,7 @@ import { resolveUserPath } from './paths.js'
 import { openPath, pickDirectory } from './picker.js'
 import { existsSync, rmSync } from 'node:fs'
 import { moveLocalMessage } from './mail-write.js'
+import { draftMime } from './draft-mime.js'
 import { BackupEngine } from './backup.js'
 import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestContext } from './http.js'
 import { normalizeTranslated, summaryBlocks, textToHtml } from './ai.js'
@@ -343,14 +344,47 @@ function buildRouter(runtime: MailHarborRuntime): Router {
   router.post('/drafts', async ({ url, body }) => {
     const { account } = accountFrom(runtime, url)
     const payload = await body()
-    const draft = runtime.drafts(account).save(normalizeDraftInput(payload, account.id))
-    return { draft }
+    const store = runtime.drafts(account)
+    const draft = store.save(normalizeDraftInput(payload, account.id))
+    if (payload.remote !== true) return { draft }
+    if (!runtime.hasCredentials(account)) return { draft, syncError: '未登录，草稿仅保存在本地' }
+    try {
+      const raw = await draftMime(account, draft)
+      const provider = runtime.provider(account)
+      const appended = await provider.appendDraft(raw)
+      if (draft.remoteUid !== undefined && draft.remoteMailbox !== undefined) {
+        try {
+          await provider.deleteMessage(draft.remoteMailbox, draft.remoteUid)
+        } catch {
+          // The old copy may already be gone; the new one is what matters.
+        }
+      }
+      const updated = store.save({ ...draft, remoteUid: appended.uid, remoteMailbox: appended.mailbox })
+      return { draft: updated }
+    } catch (error) {
+      return {
+        draft,
+        syncError: error instanceof Error ? error.message : String(error),
+      }
+    }
   })
 
-  router.delete('/drafts/:id', ({ url, params }) => {
+  router.delete('/drafts/:id', async ({ url, params }) => {
     const { account } = accountFrom(runtime, url)
+    const draft = runtime.drafts(account).get(params.id ?? '')
     const removed = runtime.drafts(account).remove(params.id ?? '')
     if (!removed) throw new HttpError(404, '草稿不存在')
+    if (
+      draft?.remoteUid !== undefined &&
+      draft.remoteMailbox !== undefined &&
+      runtime.hasCredentials(account)
+    ) {
+      try {
+        await runtime.provider(account).deleteMessage(draft.remoteMailbox, draft.remoteUid)
+      } catch {
+        // Best effort: the local draft is already gone.
+      }
+    }
     return { ok: true }
   })
 
