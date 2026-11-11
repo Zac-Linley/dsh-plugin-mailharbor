@@ -6,7 +6,7 @@ import { TasksIcon, TasksPanel } from './tasks-panel.js'
 import type { ClientContext } from './dsh.js'
 
 /** Keep in sync with package.json (`npm run version` does this). */
-export const VERSION = '0.17.0'
+export const VERSION = '0.18.0'
 
 /** Services required by this browser plugin. */
 export const inject = ['slots']
