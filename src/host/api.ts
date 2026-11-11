@@ -400,14 +400,26 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       const part = Number(url.searchParams.get('part') ?? 0)
       const provider = runtime.provider(account)
       const file = await provider.attachment(mailbox, uid, part)
-      writeAttachment(res, file.filename, file.contentType, Buffer.from(file.dataBase64, 'base64'))
+      writeAttachment(
+        res,
+        file.filename,
+        file.contentType,
+        Buffer.from(file.dataBase64, 'base64'),
+        canPreviewInline(file.contentType) && url.searchParams.get('inline') === '1',
+      )
       return undefined
     }
     const emailId = Number(url.searchParams.get('emailId') ?? 0)
     const attachmentId = Number(url.searchParams.get('attachmentId') ?? 0)
     const file = runtime.database(account).attachment(emailId, attachmentId)
     if (file === undefined) throw new HttpError(404, '附件不存在')
-    writeAttachment(res, file.filename, file.contentType, Buffer.from(file.data))
+    writeAttachment(
+      res,
+      file.filename,
+      file.contentType,
+      Buffer.from(file.data),
+      canPreviewInline(file.contentType) && url.searchParams.get('inline') === '1',
+    )
     return undefined
   })
 
@@ -1481,13 +1493,40 @@ async function listServer(
   return { items, total: result.total }
 }
 
-function writeAttachment(res: ServerResponse, filename: string, contentType: string, data: Buffer): void {
+function canPreviewInline(contentType: string): boolean {
+  const type = contentType.toLowerCase()
+  return (
+    (type.startsWith('image/') && type !== 'image/svg+xml') ||
+    type === 'application/pdf' ||
+    type === 'text/plain' ||
+    type === 'text/csv' ||
+    type === 'text/markdown' ||
+    type === 'application/json'
+  )
+}
+
+function writeAttachment(
+  res: ServerResponse,
+  filename: string,
+  contentType: string,
+  data: Buffer,
+  inline = false,
+): void {
   res.statusCode = 200
   res.setHeader('content-type', contentType)
   res.setHeader('content-length', String(data.length))
-  res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`)
+  res.setHeader(
+    'content-disposition',
+    `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(filename)}`,
+  )
   res.setHeader('cache-control', 'no-store')
   res.setHeader('x-content-type-options', 'nosniff')
+  // Attachment payloads are untrusted; a sandbox CSP stops scripts even if a
+  // file is opened directly in the browser.
+  res.setHeader(
+    'content-security-policy',
+    "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+  )
   res.end(data)
 }
 

@@ -19,23 +19,23 @@ and read state.
 
 ## Features
 
-| Area        | What you get                                                                                                                                                  |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Accounts    | Any IMAP/SMTP mailbox with a password or app password; per-account data directory; accounts and folders in the left column                                    |
-| Local-first | Opens from the local SQLite backup instantly, then syncs new mail in the background; progress popover with start/stop                                         |
-| Browse      | Collapsible account/folder column, paging, subject conversations loaded across the whole backup, AI search over the local index                               |
-| Actions     | Star, archive, delete-to-trash, move to any folder; bulk read/unread/star/archive/delete                                                                      |
-| Reader      | Sandboxed HTML with a strict CSP, inline cid images as data URLs, remote images blocked, plain-text fallback, attachment download                             |
-| Compose     | Rich text, attachments, reply/reply-all/forward with `In-Reply-To` and `References`, contact autocomplete, per-account signatures, explicit send confirmation |
-| Drafts      | Local drafts mirrored to IMAP Drafts on save/close, cleaned up on discard and send                                                                            |
-| AI          | Per-mail workspace: summary (brief/standard/detailed), reply, translation, Q&A, writing style; inline expansion; AI search; compose draft/polish/shorten      |
-| Projects    | Project folder (`BRIEF.md`, `CONVERSATION.md`) registered in DSH Workspaces; append AI records, add mails, open in Finder; delete folder/workspace when asked |
-| Tasks       | Kanban board (待处理 / 进行中 / 已完成 / 终止) with due/priority/owner/project, source-mail links and AI extraction                                           |
-| Credentials | macOS Keychain, libsecret, Windows Credential Locker; secrets never enter `config.json`                                                                       |
-| Migration   | Export/import a JSON profile: accounts without secrets, signature and reading settings                                                                        |
-| Agent tools | `mail_status`, `mail_list`, `mail_read`, `mail_search`, `mail_drafts`, `mail_draft`, `mail_backup`                                                            |
-| Settings    | DSH Settings → MailHarbor: accounts, servers, checks, signature, reading, list size, AI model and writing style, project root                                 |
-| Layout      | Responsive shell: the folder column becomes a drawer, list/reader switch to one pane, AI rail becomes an overlay, reader actions collapse behind 更多         |
+| Area        | What you get                                                                                                                                                                                  |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Accounts    | Any IMAP/SMTP mailbox with a password or app password; per-account data directory; accounts and folders in the left column                                                                    |
+| Local-first | Opens from the local SQLite backup instantly, then syncs new mail in the background; progress popover with start/stop                                                                         |
+| Browse      | Collapsible account/folder column, paging, subject conversations loaded across the whole backup, AI search over the local index                                                               |
+| Actions     | Star, archive, delete-to-trash, move to any folder; bulk read/unread/star/archive/delete                                                                                                      |
+| Reader      | Sandboxed HTML with a strict CSP, inline cid images as data URLs, remote images blocked, plain-text fallback, attachment download                                                             |
+| Compose     | Rich text, attachments, reply/reply-all/forward with `In-Reply-To` and `References`, contact autocomplete, per-account signatures, drag/drop or paste attachments, explicit send confirmation |
+| Drafts      | Local drafts mirrored to IMAP Drafts on save/close, cleaned up on discard and send                                                                                                            |
+| AI          | Per-mail workspace: summary (brief/standard/detailed), reply, translation, Q&A, writing style; inline expansion; AI search; compose draft/polish/shorten                                      |
+| Projects    | Project folder (`BRIEF.md`, `CONVERSATION.md`) registered in DSH Workspaces; append AI records, add mails, open in Finder; delete folder/workspace when asked                                 |
+| Tasks       | Kanban board (待处理 / 进行中 / 已完成 / 终止) with due/priority/owner/project, source-mail links and AI extraction                                                                           |
+| Credentials | macOS Keychain, libsecret, Windows Credential Locker; secrets never enter `config.json`                                                                                                       |
+| Migration   | Export/import a JSON profile: accounts without secrets, signature and reading settings                                                                                                        |
+| Agent tools | `mail_status`, `mail_list`, `mail_read`, `mail_search`, `mail_drafts`, `mail_draft`, `mail_backup`                                                                                            |
+| Settings    | DSH Settings → MailHarbor: accounts, servers, checks, signature, reading, list size, AI model and writing style, project root                                                                 |
+| Layout      | Responsive shell: the folder column becomes a drawer, list/reader switch to one pane, AI rail becomes an overlay, reader actions collapse behind 更多                                         |
 
 ## Screenshots
 

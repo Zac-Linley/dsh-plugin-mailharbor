@@ -1,7 +1,7 @@
 import { createElement as h, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { MessageDetail, MessageSummary } from '../shared/types.js'
+import type { AttachmentMeta, MessageDetail, MessageSummary } from '../shared/types.js'
 import { api } from './api.js'
-import { Avatar, formatBytes, longDate } from './components.js'
+import { Avatar, formatBytes, longDate, Modal } from './components.js'
 import { Icon } from './icons.js'
 
 export type ReaderAiAction = 'summary' | 'reply' | 'translate'
@@ -58,6 +58,39 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function previewable(contentType: string): boolean {
+  const type = contentType.toLowerCase()
+  return (
+    (type.startsWith('image/') && type !== 'image/svg+xml') ||
+    type === 'application/pdf' ||
+    type === 'text/plain' ||
+    type === 'text/csv' ||
+    type === 'text/markdown' ||
+    type === 'application/json'
+  )
+}
+
+function AttachmentPreviewText({ url }: { url: string }): ReactNode {
+  const [text, setText] = useState('')
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    fetch(url)
+      .then((response) => response.text())
+      .then((value) => {
+        if (!cancelled) setText(value.slice(0, 200_000))
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : String(caught))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [url])
+  if (error !== '') return h('p', { className: 'small', style: { color: 'var(--m-danger)' } }, error)
+  return h('pre', { className: 'mailharbor-preview-text' }, text === '' ? '加载中…' : text)
+}
+
 function AttachmentChips({
   detail,
   source,
@@ -68,50 +101,120 @@ function AttachmentChips({
   mailbox: string
 }): ReactNode {
   const [expanded, setExpanded] = useState(false)
+  const [preview, setPreview] = useState<AttachmentMeta | null>(null)
   if (detail.attachments.length === 0) return null
   const shown = expanded ? detail.attachments : detail.attachments.slice(0, 3)
   const hidden = detail.attachments.length - shown.length
+  const urlFor = (file: AttachmentMeta, inline: boolean): string =>
+    source === 'server'
+      ? api.attachmentUrl({
+          accountId: detail.accountId,
+          source: 'server',
+          mailbox,
+          uid: detail.uid ?? '',
+          part: file.id,
+          ...(inline ? { inline: 1 } : {}),
+        })
+      : api.attachmentUrl({
+          accountId: detail.accountId,
+          source: 'local',
+          emailId: detail.id,
+          attachmentId: file.id,
+          ...(inline ? { inline: 1 } : {}),
+        })
+  const previewUrl = preview === null ? '' : urlFor(preview, true)
   return h(
     'div',
-    { className: 'mailharbor-attachment-chips' },
-    shown.map((file) =>
-      h(
-        'a',
-        {
-          className: 'mailharbor-attachment',
-          key: file.id,
-          href:
-            source === 'server'
-              ? api.attachmentUrl({
-                  accountId: detail.accountId,
-                  source: 'server',
-                  mailbox,
-                  uid: detail.uid ?? '',
-                  part: file.id,
-                })
-              : api.attachmentUrl({
-                  accountId: detail.accountId,
-                  source: 'local',
-                  emailId: detail.id,
-                  attachmentId: file.id,
-                }),
-          download: file.filename,
-          title: file.filename,
-        },
-        h(Icon, { name: 'paperclip', size: 12 }),
-        h('span', { className: 'name' }, file.filename),
-        h('span', { className: 'muted small' }, formatBytes(file.size)),
+    null,
+    h(
+      'div',
+      { className: 'mailharbor-attachment-chips' },
+      shown.map((file) =>
+        previewable(file.contentType)
+          ? h(
+              'button',
+              {
+                key: file.id,
+                className: 'mailharbor-attachment',
+                title: `预览 ${file.filename}`,
+                onClick: () => setPreview(file),
+              },
+              h(Icon, { name: 'paperclip', size: 12 }),
+              h('span', { className: 'name' }, file.filename),
+              h('span', { className: 'muted small' }, formatBytes(file.size)),
+            )
+          : h(
+              'a',
+              {
+                className: 'mailharbor-attachment',
+                key: file.id,
+                href: urlFor(file, false),
+                download: file.filename,
+                title: file.filename,
+              },
+              h(Icon, { name: 'paperclip', size: 12 }),
+              h('span', { className: 'name' }, file.filename),
+              h('span', { className: 'muted small' }, formatBytes(file.size)),
+            ),
       ),
+      hidden > 0
+        ? h(
+            'button',
+            { className: 'subtle small', onClick: () => setExpanded(true) },
+            `+${String(hidden)} 个附件`,
+          )
+        : detail.attachments.length > 3
+          ? h('button', { className: 'subtle small', onClick: () => setExpanded(false) }, '收起附件')
+          : null,
     ),
-    hidden > 0
-      ? h(
-          'button',
-          { className: 'subtle small', onClick: () => setExpanded(true) },
-          `+${String(hidden)} 个附件`,
-        )
-      : detail.attachments.length > 3
-        ? h('button', { className: 'subtle small', onClick: () => setExpanded(false) }, '收起附件')
-        : null,
+    preview === null
+      ? null
+      : h(
+          Modal,
+          {
+            title: preview.filename,
+            wide: true,
+            onClose: () => setPreview(null),
+            footer: h(
+              'div',
+              { style: { display: 'flex', gap: '8px', width: '100%', alignItems: 'center' } },
+              h(
+                'span',
+                { className: 'small muted' },
+                `${preview.contentType} · ${formatBytes(preview.size)}`,
+              ),
+              h('span', { className: 'spacer' }),
+              h(
+                'a',
+                {
+                  className: 'ghost',
+                  href: urlFor(preview, false),
+                  download: preview.filename,
+                  style: { display: 'inline-flex', alignItems: 'center', gap: '5px' },
+                },
+                '下载',
+              ),
+              h('button', { className: 'primary small', onClick: () => setPreview(null) }, '关闭'),
+            ),
+          },
+          h(
+            'div',
+            {
+              className: `mailharbor-preview${
+                preview.contentType.toLowerCase().startsWith('image/')
+                  ? ' image'
+                  : preview.contentType.toLowerCase() === 'application/pdf'
+                    ? ' pdf'
+                    : ' text'
+              }`,
+            },
+            preview.contentType.toLowerCase().startsWith('image/')
+              ? h('img', { src: previewUrl, alt: preview.filename })
+              : preview.contentType.toLowerCase() === 'application/pdf'
+                ? h('iframe', { src: previewUrl, title: preview.filename })
+                : h(AttachmentPreviewText, { url: previewUrl }),
+          ),
+        ),
   )
 }
 

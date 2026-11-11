@@ -56,6 +56,7 @@ export function Composer({
   const [subject, setSubject] = useState(initial.subject)
   const [showCc, setShowCc] = useState(initial.cc !== '' || initial.bcc !== '')
   const [attachments, setAttachments] = useState<DraftAttachment[]>(initial.attachments ?? [])
+  const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [confirming, setConfirming] = useState(false)
@@ -211,7 +212,7 @@ export function Composer({
     markDirty()
   }
 
-  const addFiles = async (files: FileList | null): Promise<void> => {
+  const addFiles = async (files: FileList | File[] | null): Promise<void> => {
     if (files === null || files.length === 0) return
     setError('')
     const next = [...attachments]
@@ -519,13 +520,33 @@ export function Composer({
           ),
         ),
     h('div', {
-      className: 'mailharbor-editor',
+      className: dragging ? 'mailharbor-editor dragging' : 'mailharbor-editor',
       ref: editor,
       contentEditable: true,
       suppressContentEditableWarning: true,
-      'data-placeholder': '写点什么…',
+      'data-placeholder': '写点什么…（可拖拽附件或粘贴截图）',
       spellCheck: true,
       onInput: markDirty,
+      onDragOver: (event: { preventDefault: () => void }) => {
+        event.preventDefault()
+        setDragging(true)
+      },
+      onDragLeave: () => setDragging(false),
+      onDrop: (event: { preventDefault: () => void; dataTransfer?: { files?: FileList | null } | null }) => {
+        event.preventDefault()
+        setDragging(false)
+        void addFiles(event.dataTransfer?.files ?? null)
+      },
+      onPaste: (event: {
+        clipboardData?: { files?: FileList | null } | null
+        preventDefault: () => void
+      }) => {
+        const files = event.clipboardData?.files
+        if (files !== undefined && files !== null && files.length > 0) {
+          event.preventDefault()
+          void addFiles(files)
+        }
+      },
     }),
     h(
       'div',
