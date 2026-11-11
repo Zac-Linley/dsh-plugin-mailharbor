@@ -58,6 +58,10 @@ const PATHS: Record<string, ReactNode> = {
   folder: h('path', {
     d: 'M3.5 6.5A1.5 1.5 0 0 1 5 5h4l2 2.5h8A1.5 1.5 0 0 1 20.5 9v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z',
   }),
+  filter: h('path', {
+    d: 'M4 5h16l-6.2 7.2V19l-3.6 1.6v-8.4z',
+    strokeLinejoin: 'round',
+  }),
   star: h('path', {
     d: 'm12 3.6 2.6 5.3 5.9.9-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.9z',
     fill: 'currentColor',

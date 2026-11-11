@@ -146,11 +146,19 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       return { ...items, offset, limit }
     }
     const unreadOnly = url.searchParams.get('unread') === '1'
+    const from = url.searchParams.get('from') ?? ''
+    const since = url.searchParams.get('since') ?? ''
+    const before = url.searchParams.get('before') ?? ''
+    const attachmentsOnly = url.searchParams.get('attachment') === '1'
     const page = runtime.database(account).list({
       mailbox: mailbox === '' ? 'all' : mailbox,
       query,
       offset,
       limit,
+      ...(from.trim() === '' ? {} : { from }),
+      ...(since === '' ? {} : { since }),
+      ...(before === '' ? {} : { before }),
+      ...(attachmentsOnly ? { attachmentsOnly: true } : {}),
       ...(unreadOnly ? { unread: unreadKeys(runtime, account) } : {}),
     })
     return { ...page, items: page.items.map((item) => localSummary(runtime, account, item)) }

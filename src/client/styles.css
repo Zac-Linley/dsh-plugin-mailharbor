@@ -3114,3 +3114,68 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 68px;
 }
+
+/* ---------- structured filters ---------- */
+
+.mailharbor-filter-wrap {
+  position: relative;
+  flex: none;
+}
+
+.mailharbor-filter-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 25;
+  width: 290px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--m-line);
+  border-radius: 10px;
+  background: var(--m-bg-1);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+}
+
+.mailharbor-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--m-text-3);
+}
+
+.mailharbor-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.mailharbor-filter-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--m-text-2);
+}
+
+.mailharbor-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mailharbor-filter-actions .primary {
+  margin-left: auto;
+}
+
+@media (max-width: 560px) {
+  .mailharbor-filter-pop {
+    position: fixed;
+    top: 120px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+  }
+}

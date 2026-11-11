@@ -188,6 +188,11 @@ export function MailPanel(): ReactNode {
   const [aiSearching, setAiSearching] = useState(false)
   const [opening, setOpening] = useState<string | null>(null)
   const [unreadOnly, setUnreadOnly] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [fromFilter, setFromFilter] = useState('')
+  const [sinceFilter, setSinceFilter] = useState('')
+  const [beforeFilter, setBeforeFilter] = useState('')
+  const [attachmentOnly, setAttachmentOnly] = useState(false)
   const [unreadTotal, setUnreadTotal] = useState(0)
   const [threadItems, setThreadItems] = useState<MessageSummary[]>([])
   const [aiElapsed, setAiElapsed] = useState(0)
@@ -675,7 +680,8 @@ export function MailPanel(): ReactNode {
         cancelled = true
       }
     }
-    const pageKey = `${accountScope}:${source}:${mailbox}:${search}:${String(limit)}:${unreadOnly ? 'u' : 'a'}`
+    const filterKey = `${fromFilter}|${sinceFilter}|${beforeFilter}|${attachmentOnly ? '1' : '0'}`
+    const pageKey = `${accountScope}:${source}:${mailbox}:${search}:${String(limit)}:${unreadOnly ? 'u' : 'a'}:${filterKey}`
     const cachedPage = pageCache.get(pageKey) ?? readDisk<Page<MessageSummary>>(`page.${pageKey}`)
     if (cachedPage !== null) {
       setPage(cachedPage)
@@ -689,6 +695,10 @@ export function MailPanel(): ReactNode {
         query: search,
         limit,
         unread: unreadOnly,
+        ...(fromFilter.trim() === '' ? {} : { from: fromFilter }),
+        ...(sinceFilter === '' ? {} : { since: sinceFilter }),
+        ...(beforeFilter === '' ? {} : { before: beforeFilter }),
+        ...(attachmentOnly ? { attachment: true } : {}),
       })
       .then((result) => {
         if (!cancelled) {
@@ -722,7 +732,19 @@ export function MailPanel(): ReactNode {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountScope, source, mailbox, search, limit, tick, unreadOnly])
+  }, [
+    accountScope,
+    source,
+    mailbox,
+    search,
+    limit,
+    tick,
+    unreadOnly,
+    fromFilter,
+    sinceFilter,
+    beforeFilter,
+    attachmentOnly,
+  ])
 
   // Keyboard: `/` focuses search, Escape peels back one layer.
   useEffect(() => {
@@ -1545,6 +1567,103 @@ export function MailPanel(): ReactNode {
                   }
                 },
               }),
+              h(
+                'div',
+                { className: 'mailharbor-filter-wrap' },
+                h(
+                  'button',
+                  {
+                    className:
+                      filterOpen ||
+                      fromFilter !== '' ||
+                      sinceFilter !== '' ||
+                      beforeFilter !== '' ||
+                      attachmentOnly
+                        ? 'ghost active'
+                        : 'ghost',
+                    title: '筛选发件人、日期或附件',
+                    onClick: () => setFilterOpen(!filterOpen),
+                  },
+                  h(Icon, { name: 'filter', size: 14 }),
+                  '筛选',
+                ),
+                filterOpen
+                  ? h(
+                      'div',
+                      { className: 'mailharbor-filter-pop' },
+                      h(
+                        'label',
+                        { className: 'mailharbor-filter-field' },
+                        h('span', null, '发件人'),
+                        h('input', {
+                          value: fromFilter,
+                          placeholder: '姓名或邮箱',
+                          onChange: (event: { target: { value: string } }) =>
+                            setFromFilter(event.target.value),
+                        }),
+                      ),
+                      h(
+                        'div',
+                        { className: 'mailharbor-filter-row' },
+                        h(
+                          'label',
+                          { className: 'mailharbor-filter-field' },
+                          h('span', null, '起始日期'),
+                          h('input', {
+                            type: 'date',
+                            value: sinceFilter,
+                            onChange: (event: { target: { value: string } }) =>
+                              setSinceFilter(event.target.value),
+                          }),
+                        ),
+                        h(
+                          'label',
+                          { className: 'mailharbor-filter-field' },
+                          h('span', null, '结束日期'),
+                          h('input', {
+                            type: 'date',
+                            value: beforeFilter,
+                            onChange: (event: { target: { value: string } }) =>
+                              setBeforeFilter(event.target.value),
+                          }),
+                        ),
+                      ),
+                      h(
+                        'label',
+                        { className: 'mailharbor-filter-check' },
+                        h('input', {
+                          type: 'checkbox',
+                          checked: attachmentOnly,
+                          onChange: (event: { target: { checked: boolean } }) =>
+                            setAttachmentOnly(event.target.checked),
+                        }),
+                        '只看有附件的邮件',
+                      ),
+                      h(
+                        'div',
+                        { className: 'mailharbor-filter-actions' },
+                        h(
+                          'button',
+                          {
+                            className: 'ghost small',
+                            onClick: () => {
+                              setFromFilter('')
+                              setSinceFilter('')
+                              setBeforeFilter('')
+                              setAttachmentOnly(false)
+                            },
+                          },
+                          '重置',
+                        ),
+                        h(
+                          'button',
+                          { className: 'primary small', onClick: () => setFilterOpen(false) },
+                          '完成',
+                        ),
+                      ),
+                    )
+                  : null,
+              ),
               h(
                 'button',
                 {

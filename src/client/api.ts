@@ -102,6 +102,10 @@ export interface ListParams {
   offset?: number
   limit?: number
   unread?: boolean
+  from?: string
+  since?: string
+  before?: string
+  attachment?: boolean
 }
 
 export const api = {
@@ -110,9 +114,13 @@ export const api = {
   folders: (params: { accountId?: string | null; source: 'local' | 'server' }) =>
     request<{ items: { name: string; label?: string; count: number }[] }>(`folders${query(params)}`),
 
-  messages: (params: ListParams) =>
+  messages: ({ unread, attachment, ...params }: ListParams) =>
     request<Page<MessageSummary>>(
-      `messages${query({ ...params, unread: params.unread === true ? 1 : undefined })}`,
+      `messages${query({
+        ...params,
+        unread: unread === true ? 1 : undefined,
+        attachment: attachment === true ? 1 : undefined,
+      })}`,
     ),
 
   thread: (accountId: string | null, subject: string) =>

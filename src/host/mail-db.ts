@@ -104,6 +104,12 @@ export interface ListQuery {
   order?: 'newest' | 'oldest'
   /** Only messages whose key is in the local unread set. */
   unread?: UnreadKeys
+  /** Sender name or address contains this text. */
+  from?: string
+  /** Only messages with at least one attachment. */
+  attachmentsOnly?: boolean
+  /** ISO date (inclusive) and exclusive end date. */
+  before?: string
 }
 
 export interface MailDatabaseOptions {
@@ -226,6 +232,18 @@ export class MailDatabase {
     if (typeof query.since === 'string' && query.since !== '') {
       where.push('e.date >= ?')
       params.push(query.since)
+    }
+    if (typeof query.before === 'string' && query.before !== '') {
+      where.push('e.date < ?')
+      params.push(query.before.length === 10 ? `${query.before} 23:59:59` : query.before)
+    }
+    if (typeof query.from === 'string' && query.from.trim() !== '') {
+      const needle = `%${query.from.trim().toLowerCase()}%`
+      where.push('(lower(e.from_addr) LIKE ? OR lower(e.from_name) LIKE ?)')
+      params.push(needle, needle)
+    }
+    if (query.attachmentsOnly === true) {
+      where.push('EXISTS (SELECT 1 FROM attachments a WHERE a.email_id = e.id)')
     }
     if (query.unread !== undefined) {
       const mids = query.unread.mids.slice(0, 500)

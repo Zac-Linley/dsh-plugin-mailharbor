@@ -15,7 +15,7 @@ and read state.
 - Package: `@zaclinley/dsh-mailharbor`
 - Requirements: **DSH `>=0.2.2-0 <0.3.0`**, Node **>=24.9** (the runtime bundled with DSH is fine)
 - License: MIT
-- Status: **v0.16.0 — local-first mail workspace with background IMAP sync, AI search, projects and a Kanban task board**.
+- Status: **v0.17.0 — local-first mail workspace with background IMAP sync, structured filters, AI search, projects and a Kanban task board**.
 
 ## Features
 
