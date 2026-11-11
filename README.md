@@ -21,20 +21,22 @@ and read state.
 
 | Area        | What you get                                                                                                                                                  |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Accounts    | Any IMAP/SMTP mailbox; password, app password or OAuth2 (Google / Microsoft 365); per-account data directory                                                  |
+| OAuth2       | Google loopback + PKCE and Microsoft device-code flows; tokens in the OS keychain, refreshed in the background (bring your own client ID) |
+| Accounts     | Any IMAP/SMTP mailbox; password, app password or OAuth2; per-account data directory; accounts and folders in the left column |
 | Local-first | Opens from the local SQLite backup instantly, then syncs new mail in the background; progress popover with start/stop                                         |
 | Browse      | Collapsible account/folder column, paging, subject conversations loaded across the whole backup, AI search over the local index                               |
 | Actions     | Star, archive, delete-to-trash, move to any folder; bulk read/unread/star/archive/delete                                                                      |
-| Reader      | Sandboxed HTML with a strict CSP, inline `cid:` images inlined as data URLs, remote images blocked, attachments collapsed when numerous                       |
+| Reader       | Sandboxed HTML with a strict CSP, inline cid images as data URLs, remote images blocked, plain-text fallback, attachment download |
 | Compose     | Rich text, attachments, reply/reply-all/forward with `In-Reply-To` and `References`, contact autocomplete, per-account signatures, explicit send confirmation |
-| Drafts      | Local drafts mirrored to IMAP Drafts on save/close (replacing the old copy), cleaned up on discard and send                                                   |
+| Drafts       | Local drafts mirrored to IMAP Drafts on save/close, cleaned up on discard and send |
 | AI          | Per-mail workspace: summary (brief/standard/detailed), reply, translation, Q&A, writing style; inline expansion; AI search; compose draft/polish/shorten      |
 | Projects    | Project folder (`BRIEF.md`, `CONVERSATION.md`) registered in DSH Workspaces; append AI records, add mails, open in Finder; delete folder/workspace when asked |
 | Tasks       | Kanban board (待处理 / 进行中 / 已完成 / 终止) with due/priority/owner/project, source-mail links and AI extraction                                           |
 | Credentials | macOS Keychain, libsecret, Windows Credential Locker; OAuth tokens stored separately and refreshed in the background; secrets never enter `config.json`       |
 | Migration   | Export/import a JSON profile: accounts without secrets, signature, reading settings and OAuth app config                                                      |
 | Agent tools | `mail_status`, `mail_list`, `mail_read`, `mail_search`, `mail_drafts`, `mail_draft`, `mail_backup`                                                            |
-| Settings    | DSH Settings → MailHarbor: accounts, OAuth app IDs, checks, signatures, reading, list size, AI model and writing style, project root                          |
+| Migration    | Export/import a JSON profile: accounts without secrets, signature, reading settings and OAuth app config |
+| Settings     | DSH Settings → MailHarbor: accounts, OAuth app IDs, checks, signature, reading, list size, AI model and writing style, project root |
 
 ## Screenshots
 
