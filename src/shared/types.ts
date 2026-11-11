@@ -67,6 +67,8 @@ export interface Account {
   dataDir: string
   auth: PasswordAccountAuth | OAuthAccountAuth
   caldav: CalDavSettings | null
+  /** Optional per-account signature; falls back to the global one. */
+  signature?: string
   enabled: boolean
   createdAt: string
 }

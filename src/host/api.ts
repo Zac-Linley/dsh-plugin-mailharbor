@@ -27,6 +27,7 @@ import {
 } from './config.js'
 import { resolveUserPath } from './paths.js'
 import { openPath, pickDirectory } from './picker.js'
+import { existsSync, rmSync } from 'node:fs'
 import { moveLocalMessage } from './mail-write.js'
 import { BackupEngine } from './backup.js'
 import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestContext } from './http.js'
@@ -264,6 +265,19 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     return { ok: true, count }
   })
 
+  router.get('/messages/thread', ({ url }) => {
+    const { account } = accountFrom(runtime, url)
+    const subject = url.searchParams.get('subject') ?? ''
+    const items = runtime.database(account).thread(subject)
+    return { items: items.map((item) => localSummary(runtime, account, item)) }
+  })
+
+  router.get('/contacts', ({ url }) => {
+    const { account } = accountFrom(runtime, url)
+    const query = url.searchParams.get('q') ?? ''
+    return { items: runtime.database(account).contacts(query, 50) }
+  })
+
   router.get('/messages/:id', async ({ url, params }) => {
     const { account } = accountFrom(runtime, url)
     const source = sourceOf(url)
@@ -410,6 +424,8 @@ function buildRouter(runtime: MailHarborRuntime): Router {
           : payload.caldav === undefined
             ? existing.caldav
             : { ...asObject(payload.caldav) },
+      signature:
+        typeof payload.signature === 'string' ? payload.signature.slice(0, 5000) : existing.signature,
       enabled: payload.enabled === undefined ? existing.enabled : payload.enabled !== false,
     }
     const account = normalizeAccount(
@@ -880,17 +896,51 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     return { project: projectView(project) }
   })
 
-  router.delete('/projects/:id', ({ params }) => {
+  router.delete('/projects/:id', async ({ params, url }) => {
     const id = String(params.id ?? '')
     const project = runtime.projects().get(id)
     if (project === undefined) throw new HttpError(404, '项目不存在')
+    const warnings: string[] = []
     const removed = runtime.projects().remove(id)
     const unlinked = runtime.tasks().clearProject(id)
+
+    let workspaceRemoved = false
+    if (project.workspaceId !== '' && runtime.workspaceRegistry?.delete !== undefined) {
+      try {
+        workspaceRemoved = await runtime.workspaceRegistry.delete(project.workspaceId)
+      } catch (error) {
+        warnings.push(`移除工作空间失败：${error instanceof Error ? error.message : String(error)}`)
+      }
+    } else if (project.workspaceId !== '') {
+      warnings.push('当前 DSH 组合不支持自动移除工作空间，请在侧栏手动删除')
+    }
+
+    let filesRemoved = false
+    if (url.searchParams.get('files') === '1') {
+      try {
+        const root = runtime.current.projects.root
+        const insideRoot = project.path === root || project.path.startsWith(`${root}/`)
+        const marker = existsSync(`${project.path}/project.json`)
+        if (!insideRoot && !marker) {
+          warnings.push('项目目录不在默认项目根目录下，出于安全考虑未删除文件')
+        } else if (project.path === root || project.path === '/') {
+          warnings.push('拒绝删除项目根目录')
+        } else {
+          rmSync(project.path, { recursive: true, force: true })
+          filesRemoved = true
+        }
+      } catch (error) {
+        warnings.push(`删除文件夹失败：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
     return {
       ok: removed,
       path: project.path,
       unlinkedTasks: unlinked,
-      workspaceKept: project.workspaceId !== '',
+      workspaceRemoved,
+      filesRemoved,
+      warnings,
     }
   })
 
@@ -1394,7 +1444,8 @@ async function sendFromPayload(
   if (totalBytes > 15 * 1024 * 1024) throw new HttpError(413, '附件合计不能超过 15 MB')
 
   const { sendMail } = await import('./smtp.js')
-  const signature = runtime.current.signature
+  const signature =
+    (account.signature ?? '').trim() !== '' ? String(account.signature).trim() : runtime.current.signature
   const bodyText = signature === '' ? text : `${text}\n\n--\n${signature}`
   const bodyHtml =
     signature === '' ? html : `${html}<p>--</p><p>${escapeHtml(signature).replaceAll('\n', '<br>')}</p>`

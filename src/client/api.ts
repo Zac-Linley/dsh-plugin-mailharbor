@@ -115,6 +115,16 @@ export const api = {
       `messages${query({ ...params, unread: params.unread === true ? 1 : undefined })}`,
     ),
 
+  thread: (accountId: string | null, subject: string) =>
+    request<{ items: MessageSummary[] }>(
+      `messages/thread${query({ accountId: accountId ?? null, subject })}`,
+    ),
+
+  contacts: (accountId: string | null, q = '') =>
+    request<{ items: { name: string; address: string; count: number }[] }>(
+      `contacts${query({ accountId: accountId ?? null, q })}`,
+    ),
+
   message: (params: { id: string; accountId?: string | null; source: 'local' | 'server'; mailbox: string }) =>
     request<MessageDetail>(`messages/${encodeURIComponent(params.id)}${query({ ...params })}`),
 
@@ -394,11 +404,15 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
 
-  deleteProject: (id: string) =>
-    request<{ ok: boolean; path: string; unlinkedTasks: number; workspaceKept: boolean }>(
-      `projects/${encodeURIComponent(id)}`,
-      { method: 'DELETE' },
-    ),
+  deleteProject: (id: string, files = false) =>
+    request<{
+      ok: boolean
+      path: string
+      unlinkedTasks: number
+      workspaceRemoved: boolean
+      filesRemoved: boolean
+      warnings: string[]
+    }>(`projects/${encodeURIComponent(id)}${files ? '?files=1' : ''}`, { method: 'DELETE' }),
 
   openProject: (id: string) =>
     request<{ path: string }>(`projects/${encodeURIComponent(id)}/open`, { method: 'POST' }),

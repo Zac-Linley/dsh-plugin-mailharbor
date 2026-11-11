@@ -69,6 +69,7 @@ export interface DshWorkspace {
 
 export interface DshWorkspaceRegistry {
   create(path: string, title: string): Promise<DshWorkspace | undefined>
+  delete?(id: string): Promise<boolean>
 }
 
 export interface DshSession {

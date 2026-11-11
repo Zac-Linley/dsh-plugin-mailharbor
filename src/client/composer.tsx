@@ -65,6 +65,7 @@ export function Composer({
   const [translating, setTranslating] = useState<'zh' | 'en' | null>(null)
   const [pendingLang, setPendingLang] = useState<'zh' | 'en' | null>(null)
   const [versions, setVersions] = useState<Version[]>([{ html: initial.html, label: '原始' }])
+  const [contacts, setContacts] = useState<{ name: string; address: string }[]>([])
   const [versionIndex, setVersionIndex] = useState(0)
   const [aiBusy, setAiBusy] = useState<'draft' | 'polish' | 'shorten' | null>(null)
   const [aiDraftOpen, setAiDraftOpen] = useState(false)
@@ -72,6 +73,13 @@ export function Composer({
   const [hasBody, setHasBody] = useState(initial.html.trim() !== '')
   const editor = useRef<HTMLDivElement>(null)
   const closing = useRef(false)
+
+  useEffect(() => {
+    void api
+      .contacts(account.id, '')
+      .then((result) => setContacts(result.items))
+      .catch(() => undefined)
+  }, [account.id])
 
   useEffect(() => {
     if (editor.current !== null) editor.current.innerHTML = initial.html
@@ -304,6 +312,11 @@ export function Composer({
     },
     error === '' ? null : h('div', { className: 'small', style: { color: 'var(--m-danger)' } }, error),
     h(
+      'datalist',
+      { id: `mailharbor-contacts-${account.id}` },
+      contacts.map((contact) => h('option', { key: contact.address, value: contact.address }, contact.name)),
+    ),
+    h(
       'div',
       { className: 'mailharbor-grid' },
       h(
@@ -311,6 +324,7 @@ export function Composer({
         { label: '收件人' },
         h('input', {
           value: to,
+          list: `mailharbor-contacts-${account.id}`,
           onChange: (event: { target: { value: string } }) => {
             setTo(event.target.value)
             markDirty()

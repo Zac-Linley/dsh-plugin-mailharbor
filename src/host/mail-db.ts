@@ -344,6 +344,67 @@ export class MailDatabase {
     return { items: rows.map((row) => rowToSummary(row as Record<string, unknown>)), total, offset: 0, limit }
   }
 
+  /** Frequent senders and recipients, for compose autocomplete. */
+  contacts(query = '', limit = 50): { name: string; address: string; count: number }[] {
+    const text = query.trim().toLowerCase()
+    const counts = new Map<string, { name: string; address: string; count: number }>()
+    const add = (name: string, address: string): void => {
+      const key = address.toLowerCase()
+      if (key === '' || !key.includes('@')) return
+      const existing = counts.get(key)
+      if (existing === undefined) counts.set(key, { name, address, count: 1 })
+      else {
+        existing.count += 1
+        if (existing.name === '' && name !== '') existing.name = name
+      }
+    }
+    try {
+      const db = this.open()
+      for (const row of db
+        .prepare(
+          `SELECT from_name AS name, from_addr AS address FROM emails
+           WHERE from_addr <> '' AND from_addr LIKE '%@%' ORDER BY date DESC LIMIT 3000`,
+        )
+        .all() as { name?: string; address?: string }[]) {
+        add(String(row.name ?? ''), String(row.address ?? ''))
+      }
+      for (const row of db
+        .prepare(
+          `SELECT to_addr AS address, cc AS copies FROM emails
+           WHERE (to_addr <> '' OR cc <> '') ORDER BY date DESC LIMIT 1500`,
+        )
+        .all() as { address?: string; copies?: string }[]) {
+        for (const entry of parseAddressList(String(row.address ?? ''))) add(entry.name, entry.address)
+        for (const entry of parseAddressList(String(row.copies ?? ''))) add(entry.name, entry.address)
+      }
+    } catch {
+      return []
+    }
+    return [...counts.values()]
+      .filter(
+        (entry) =>
+          text === '' ||
+          entry.address.toLowerCase().includes(text) ||
+          entry.name.toLowerCase().includes(text),
+      )
+      .sort((left, right) => right.count - left.count)
+      .slice(0, limit)
+  }
+
+  /** All archived messages in the same conversation (normalized subject). */
+  thread(subject: string, limit = 200): MessageSummary[] {
+    const normalize = (value: string): string =>
+      value
+        .replace(/^(\s*(re|fw|fwd|回复|转发)\s*[:：]\s*)+/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
+    const base = normalize(subject)
+    if (base === '') return []
+    const page = this.list({ mailbox: 'all', query: base, limit: Math.min(500, limit * 2) })
+    return page.items.filter((item) => normalize(item.subject) === base).slice(0, limit)
+  }
+
   /** Number of unread keys that still exist in this backup. */
   countUnread(keys: UnreadKeys): number {
     const mids = keys.mids.slice(0, 500)

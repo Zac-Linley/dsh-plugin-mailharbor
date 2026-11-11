@@ -181,11 +181,13 @@ export function MailPanel(): ReactNode {
   const [managerProjects, setManagerProjects] = useState<Project[]>([])
   const [managerRename, setManagerRename] = useState<{ id: string; name: string } | null>(null)
   const [managerConfirm, setManagerConfirm] = useState('')
+  const [managerDeleteFiles, setManagerDeleteFiles] = useState(false)
   const [managerBusy, setManagerBusy] = useState(false)
   const [aiSearching, setAiSearching] = useState(false)
   const [opening, setOpening] = useState<string | null>(null)
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [unreadTotal, setUnreadTotal] = useState(0)
+  const [threadItems, setThreadItems] = useState<MessageSummary[]>([])
   const [aiElapsed, setAiElapsed] = useState(0)
   const hoverTimer = useRef<number | null>(null)
   const folderPrefetchTimers = useRef<number[]>([])
@@ -357,6 +359,25 @@ export function MailPanel(): ReactNode {
       .projects()
       .then((list) => setManagerProjects(list.items))
       .catch((caught: unknown) => setError(errorText(caught)))
+  }
+
+  const deleteProject = async (id: string): Promise<void> => {
+    setManagerBusy(true)
+    setError('')
+    try {
+      const result = await api.deleteProject(id, managerDeleteFiles)
+      const list = await api.projects()
+      setManagerProjects(list.items)
+      setManagerConfirm('')
+      setManagerDeleteFiles(false)
+      if (result.warnings.length > 0) setError(result.warnings.join('；'))
+      else notice(result.filesRemoved ? '项目、文件夹和工作空间已删除' : '项目已删除')
+      setTick((value) => value + 1)
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setManagerBusy(false)
+    }
   }
 
   const managerAction = async (operation: () => Promise<unknown>): Promise<void> => {
@@ -584,6 +605,31 @@ export function MailPanel(): ReactNode {
     setAiInfo(null)
     setSearch('')
   }, [accountScope, source])
+
+  useEffect(() => {
+    if (selected === null) {
+      setThreadItems([])
+      return
+    }
+    let cancelled = false
+    api
+      .thread(selected.accountId, selected.subject)
+      .then((result) => {
+        if (!cancelled) {
+          setThreadItems(
+            result.items.length > 0
+              ? result.items
+              : [{ ...selected, accountId: selected.accountId } as MessageSummary],
+          )
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setThreadItems([{ ...selected, accountId: selected.accountId } as MessageSummary])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selected])
 
   useEffect(() => {
     let cancelled = false
@@ -1104,15 +1150,6 @@ export function MailPanel(): ReactNode {
     return detail
   }
 
-  const threadItems =
-    selected === null
-      ? []
-      : items.filter(
-          (item) =>
-            item.accountId === selected.accountId &&
-            normalizeSubject(item.subject) === normalizeSubject(selected.subject),
-        )
-
   const isSent = isSentFolder(mailbox)
   const groups = groupMessages(items)
 
@@ -1341,6 +1378,21 @@ export function MailPanel(): ReactNode {
       ? null
       : h('div', { className: 'small', style: { padding: '6px 14px', color: 'var(--m-ok)' } }, toast),
     error === '' ? null : h(ErrorBar, { message: error, onDismiss: () => setError('') }),
+    backup !== null &&
+      backup !== undefined &&
+      backup.running === false &&
+      backup.exitCode !== null &&
+      backup.exitCode !== 0
+      ? h(
+          'div',
+          { className: 'mailharbor-sync-error' },
+          h(Icon, { name: 'close', size: 13 }),
+          h('span', null, `同步失败：${backup.message}`),
+          h('span', { className: 'spacer' }),
+          h('button', { className: 'subtle small', onClick: () => setBackupOpen(true) }, '查看'),
+          h('button', { className: 'subtle small', onClick: () => void startBackup() }, '重试'),
+        )
+      : null,
     needsLogin
       ? h(
           'div',
@@ -1818,7 +1870,7 @@ export function MailPanel(): ReactNode {
               h(
                 'span',
                 { className: 'small muted' },
-                '删除只移除 MailHarbor 的项目记录，文件夹与 DSH 工作空间会保留。',
+                '默认只移除项目记录；勾选「同时删除文件夹」会连同磁盘目录一起删除，工作空间会一并注销。',
               ),
               h('span', { className: 'spacer' }),
               h('button', { className: 'ghost', onClick: () => setManagerOpen(false) }, '关闭'),
@@ -1902,21 +1954,37 @@ export function MailPanel(): ReactNode {
                             'span',
                             { style: { display: 'inline-flex', gap: '6px' } },
                             h(
+                              'label',
+                              {
+                                className: 'small muted',
+                                style: { display: 'inline-flex', gap: '4px', alignItems: 'center' },
+                              },
+                              h('input', {
+                                type: 'checkbox',
+                                checked: managerDeleteFiles,
+                                onChange: (event: { target: { checked: boolean } }) =>
+                                  setManagerDeleteFiles(event.target.checked),
+                              }),
+                              '同时删除文件夹',
+                            ),
+                            h(
                               'button',
                               {
                                 className: 'ghost small danger',
                                 disabled: managerBusy,
-                                onClick: () =>
-                                  void managerAction(async () => {
-                                    await api.deleteProject(project.id)
-                                    notice('项目已删除（文件夹保留）')
-                                  }),
+                                onClick: () => void deleteProject(project.id),
                               },
                               '确认删除',
                             ),
                             h(
                               'button',
-                              { className: 'ghost small', onClick: () => setManagerConfirm('') },
+                              {
+                                className: 'ghost small',
+                                onClick: () => {
+                                  setManagerConfirm('')
+                                  setManagerDeleteFiles(false)
+                                },
+                              },
                               '取消',
                             ),
                           )

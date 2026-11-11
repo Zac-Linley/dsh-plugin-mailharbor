@@ -276,12 +276,13 @@ export class MailHarborRuntime {
     const running = this.backups.get(account.id)
     if (running !== undefined && running.status.running) throw new Error('备份已在进行中')
     const controller = new AbortController()
+    const previous = this.backups.get(account.id)?.status
     const status: BackupStatus = {
       running: true,
       accountId: account.id,
       startedAt: new Date().toISOString(),
       finishedAt: null,
-      lastSuccessAt: null,
+      lastSuccessAt: previous?.lastSuccessAt ?? null,
       total: 0,
       added: 0,
       message: '准备备份',

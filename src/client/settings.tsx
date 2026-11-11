@@ -555,6 +555,7 @@ function AccountRow({
   const [smtpPort, setSmtpPort] = useState(String(account.smtp.port))
   const [smtpSecure, setSmtpSecure] = useState(account.smtp.secure)
   const [fromName, setFromName] = useState(account.smtp.fromName)
+  const [accountSignature, setAccountSignature] = useState(account.signature ?? '')
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
 
@@ -568,6 +569,7 @@ function AccountRow({
     setSmtpPort(String(account.smtp.port))
     setSmtpSecure(account.smtp.secure)
     setFromName(account.smtp.fromName)
+    setAccountSignature(account.signature ?? '')
   }, [account])
 
   const wrap = async (operation: () => Promise<void>): Promise<void> => {
@@ -711,6 +713,7 @@ function AccountRow({
                       username,
                       imap: { host: imapHost, port: Number(imapPort) || 993, secure: imapSecure },
                       smtp: { host: smtpHost, port: Number(smtpPort) || 465, secure: smtpSecure, fromName },
+                      signature: accountSignature,
                     })
                   }),
               },

@@ -155,6 +155,7 @@ export function normalizeAccount(
         ? { type: 'oauth2', provider: input.auth.provider }
         : { type: 'password' },
     caldav: normalizeCaldav(input.caldav),
+    signature: stringOr(input.signature, '').slice(0, 5000),
     enabled: input.enabled !== false,
     createdAt: stringOr(input.createdAt, new Date().toISOString()),
   }
