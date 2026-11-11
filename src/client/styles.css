@@ -3257,10 +3257,9 @@
 }
 
 .mailharbor-thread-head {
-  align-items: flex-start;
+  align-items: center;
 }
 
-.mailharbor-thread-head .avatar,
-.mailharbor-thread-head > span:first-child {
-  margin-top: 2px;
+.thread-main {
+  justify-content: center;
 }

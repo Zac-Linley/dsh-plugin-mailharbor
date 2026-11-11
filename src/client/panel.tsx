@@ -163,6 +163,7 @@ export function MailPanel(): ReactNode {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([])
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
   const searchRef = useRef<HTMLInputElement | null>(null)
+  const threadCache = useRef(new Map<string, { at: number; items: MessageSummary[] }>())
   const [projectOptions, setProjectOptions] = useState<Project[]>([])
   const [targetProject, setTargetProject] = useState('')
   const [extraction, setExtraction] = useState<{ items: TaskSuggestion[]; checked: boolean[] } | null>(null)
@@ -618,25 +619,33 @@ export function MailPanel(): ReactNode {
       setThreadItems([])
       return
     }
+    const accountId = selected.accountId
+    const subjectKey = normalizeSubject(selected.subject)
+    const key = `${accountId}:${subjectKey}`
+    const cached = threadCache.current.get(key)
+    if (cached !== undefined && Date.now() - cached.at < 300_000) {
+      setThreadItems(cached.items)
+      return
+    }
+    // Show the current page's group immediately, then refine with References.
+    const placeholder = page.items.filter(
+      (item) => item.accountId === accountId && normalizeSubject(item.subject) === subjectKey,
+    )
+    setThreadItems(placeholder.length > 0 ? placeholder : [selected])
     let cancelled = false
     api
-      .thread(selected.accountId, selected.subject, selected.messageId)
+      .thread(accountId, selected.subject, selected.messageId)
       .then((result) => {
-        if (!cancelled) {
-          setThreadItems(
-            result.items.length > 0
-              ? result.items
-              : [{ ...selected, accountId: selected.accountId } as MessageSummary],
-          )
-        }
+        if (cancelled) return
+        const next = result.items.length > 0 ? result.items : [selected]
+        setThreadItems(next)
+        threadCache.current.set(key, { at: Date.now(), items: next })
       })
-      .catch(() => {
-        if (!cancelled) setThreadItems([{ ...selected, accountId: selected.accountId } as MessageSummary])
-      })
+      .catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [selected])
+  }, [selected, page.items])
 
   useEffect(() => {
     let cancelled = false
