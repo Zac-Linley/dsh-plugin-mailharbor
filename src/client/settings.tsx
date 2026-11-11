@@ -31,6 +31,12 @@ export function MailSettings(): ReactNode {
   const [checkResults, setCheckResults] = useState<Record<string, string>>({})
   const [adding, setAdding] = useState(false)
   const [tick, setTick] = useState(0)
+  const [refIndex, setRefIndex] = useState<{
+    running: boolean
+    indexed: number
+    remaining: number | null
+    error: string | null
+  } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -87,6 +93,28 @@ export function MailSettings(): ReactNode {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, settings?.activeAccountId])
+
+  const activeId = settings?.activeAccountId ?? state?.activeAccountId ?? null
+  useEffect(() => {
+    if (activeId === null) return
+    let cancelled = false
+    let timer: number | undefined
+    const poll = async (): Promise<void> => {
+      try {
+        const status = await api.referencesStatus(activeId)
+        if (cancelled) return
+        setRefIndex(status)
+        if (status.running) timer = window.setTimeout(() => void poll(), 1500)
+      } catch {
+        // The index is optional; ignore transient errors.
+      }
+    }
+    void poll()
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [activeId])
 
   const reload = (): void => setTick((value) => value + 1)
 
@@ -214,6 +242,44 @@ export function MailSettings(): ReactNode {
           : h('button', { className: 'ghost', onClick: () => setAdding(true) }, '+ 添加账号'),
       ),
 
+      h(
+        'div',
+        { className: 'mailharbor-card' },
+        h('h3', null, '会话索引'),
+        h(
+          'p',
+          { className: 'small muted' },
+          '为旧邮件解析 In-Reply-To/References，让标题变了的回复也能归入同一会话。新邮件在备份时自动写入。',
+        ),
+        refIndex === null
+          ? null
+          : h(
+              'p',
+              { className: 'small' },
+              refIndex.error !== null
+                ? `索引出错：${refIndex.error}`
+                : refIndex.running
+                  ? `正在建立索引 · 已处理 ${String(refIndex.indexed)} 封 · 剩余 ${String(refIndex.remaining ?? '?')} 封`
+                  : refIndex.remaining === 0
+                    ? '旧邮件索引已完成。'
+                    : `剩余 ${String(refIndex.remaining ?? '?')} 封待处理。`,
+            ),
+        h(
+          'button',
+          {
+            className: 'ghost',
+            disabled: refIndex?.running === true || activeId === null,
+            onClick: () => {
+              if (activeId === null) return
+              void api
+                .startReferencesBackfill(activeId)
+                .then((status) => setRefIndex(status))
+                .catch((caught: unknown) => setError(errorText(caught)))
+            },
+          },
+          refIndex?.running === true ? '索引进行中…' : '重建旧邮件会话索引',
+        ),
+      ),
       h(
         'div',
         { className: 'mailharbor-card' },

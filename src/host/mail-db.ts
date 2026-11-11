@@ -92,6 +92,9 @@ export function ensureMailSchema(file: string): void {
     if (!emailColumns.some((column) => column.name === 'references')) {
       db.exec('ALTER TABLE emails ADD COLUMN "references" TEXT')
     }
+    if (!emailColumns.some((column) => column.name === 'refs_indexed')) {
+      db.exec('ALTER TABLE emails ADD COLUMN refs_indexed INTEGER DEFAULT 0')
+    }
   } finally {
     db.close()
   }

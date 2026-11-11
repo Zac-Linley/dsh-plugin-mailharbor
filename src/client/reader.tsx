@@ -50,6 +50,14 @@ function addressLine(list: { name: string; address: string }[]): string {
   return list.map((item) => (item.name !== '' ? `${item.name} <${item.address}>` : item.address)).join('、')
 }
 
+function threadStamp(value: string): string {
+  const date = new Date(value.includes('T') ? value : value.replace(' ', 'T'))
+  if (Number.isNaN(date.getTime())) return value
+  const pad = (part: number): string => String(part).padStart(2, '0')
+  const stamp = `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return date.getFullYear() === new Date().getFullYear() ? stamp : `${String(date.getFullYear())}-${stamp}`
+}
+
 function isSentMailbox(mailbox: string): boolean {
   return /(^|[/.])(sent|sent items|sent mail|已发送|发件箱)/i.test(mailbox)
 }
@@ -530,11 +538,29 @@ export function Reader({
                 h(Avatar, { email: who.address, size: 26 }),
                 h(
                   'span',
-                  { className: 'thread-who' },
-                  h('strong', null, who.name !== '' ? who.name : who.address),
-                  h('span', { className: 'small muted' }, `发给 ${addressLine(item.to)}`),
+                  { className: 'thread-main' },
+                  h(
+                    'span',
+                    { className: 'thread-line' },
+                    h('strong', { className: 'thread-name' }, who.name !== '' ? who.name : who.address),
+                    item.unread ? h('span', { className: 'dot', title: '未读' }) : null,
+                    item.hasAttachments ? h(Icon, { name: 'paperclip', size: 12 }) : null,
+                    sentItem && item.to.length > 1
+                      ? h('span', { className: 'thread-count' }, `发给 ${String(item.to.length)} 人`)
+                      : null,
+                    h('span', { className: 'spacer' }),
+                    h(
+                      'span',
+                      { className: 'thread-date', title: longDate(item.date) },
+                      threadStamp(item.date),
+                    ),
+                  ),
+                  h(
+                    'span',
+                    { className: 'thread-snippet' },
+                    item.snippet === '' ? (expandedItem ? '' : '（无正文预览）') : item.snippet,
+                  ),
                 ),
-                h('span', { className: 'small muted thread-date' }, longDate(item.date)),
                 expandedItem
                   ? h(Icon, { name: 'chevronLeft', size: 14 })
                   : h(Icon, { name: 'chevronRight', size: 14 }),

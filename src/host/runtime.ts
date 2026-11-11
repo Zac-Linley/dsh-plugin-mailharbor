@@ -1,10 +1,11 @@
-import { statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Account, BackupStatus, ImapSettings } from '../shared/types.js'
 import { CredentialManager } from './accounts.js'
 import { AiService } from './ai.js'
 import { AiThreadStore } from './ai-store.js'
 import { MailFlagsStore } from './mail-flags.js'
+import { backfillReferences } from './references.js'
 import { ProjectStore } from './projects.js'
 import { TaskStore } from './tasks.js'
 import type { DshLlm, DshSessions, DshWorkspaceRegistry } from './dsh.js'
@@ -59,6 +60,10 @@ export class MailHarborRuntime {
   private projectStore: ProjectStore | null = null
   private taskStore: TaskStore | null = null
   private readonly flagStores = new Map<string, { signature: string; value: MailFlagsStore }>()
+  private readonly referenceJobs = new Map<
+    string,
+    { running: boolean; indexed: number; remaining: number | null; error: string | null }
+  >()
   private disposed = false
 
   constructor(
@@ -177,6 +182,52 @@ export class MailHarborRuntime {
 
   paths(account: Account): AccountRuntime {
     return accountRuntime(account)
+  }
+
+  referencesStatus(account: Account): {
+    running: boolean
+    indexed: number
+    remaining: number | null
+    error: string | null
+  } {
+    return (
+      this.referenceJobs.get(account.id) ?? {
+        running: false,
+        indexed: 0,
+        remaining: null,
+        error: null,
+      }
+    )
+  }
+
+  /** Backfill In-Reply-To/References for archived mail, one batch at a time. */
+  startReferencesBackfill(account: Account): void {
+    const existing = this.referenceJobs.get(account.id)
+    if (existing?.running === true) return
+    const dbFile = this.paths(account).mailDb
+    if (!existsSync(dbFile)) return
+    const status = {
+      running: true,
+      indexed: 0,
+      remaining: null as number | null,
+      error: null as string | null,
+    }
+    this.referenceJobs.set(account.id, status)
+    void (async () => {
+      try {
+        for (;;) {
+          const result = backfillReferences(dbFile, 300)
+          status.indexed += result.updated
+          status.remaining = result.remaining
+          if (result.remaining <= 0 || result.updated === 0) break
+          await new Promise((resolve) => setTimeout(resolve, 40))
+        }
+      } catch (error) {
+        status.error = error instanceof Error ? error.message : String(error)
+      } finally {
+        status.running = false
+      }
+    })()
   }
 
   /** Credentials for an account, with a clear message when the user must log in. */

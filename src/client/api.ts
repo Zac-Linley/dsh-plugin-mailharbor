@@ -244,6 +244,22 @@ export const api = {
   logout: (id: string) =>
     request<{ ok: true }>(`accounts/${encodeURIComponent(id)}/logout`, { method: 'POST' }),
 
+  referencesStatus: (accountId: string) =>
+    request<{
+      running: boolean
+      indexed: number
+      remaining: number | null
+      error: string | null
+    }>(`maintenance/references${query({ accountId })}`),
+
+  startReferencesBackfill: (accountId: string) =>
+    request<{
+      running: boolean
+      indexed: number
+      remaining: number | null
+      error: string | null
+    }>(`maintenance/references${query({ accountId })}`, { method: 'POST' }),
+
   exportConfig: () => request<Record<string, unknown>>('transfer/export'),
 
   importConfig: (payload: unknown) =>

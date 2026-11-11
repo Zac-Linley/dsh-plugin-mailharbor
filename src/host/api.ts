@@ -274,6 +274,17 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     return { ok: true, count }
   })
 
+  router.get('/maintenance/references', ({ url }) => {
+    const { account } = accountFrom(runtime, url)
+    return runtime.referencesStatus(account)
+  })
+
+  router.post('/maintenance/references', ({ url }) => {
+    const { account } = accountFrom(runtime, url)
+    runtime.startReferencesBackfill(account)
+    return runtime.referencesStatus(account)
+  })
+
   router.get('/transfer/export', () => {
     const config = runtime.current
     return {

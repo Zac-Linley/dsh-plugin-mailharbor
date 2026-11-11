@@ -69,6 +69,9 @@ export function apply(ctx: DshContext): void {
 
   const handler = createApiHandler(runtime)
   const disposers: (() => void)[] = []
+  if (activeAccount !== undefined) {
+    setTimeout(() => runtime.startReferencesBackfill(activeAccount), 3000)
+  }
 
   const start = (): void => {
     disposers.push(ctx.webServer.register({ kind: 'prefix', path: ROUTE, handler }))

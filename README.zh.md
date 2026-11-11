@@ -33,7 +33,7 @@ MailHarbor 在 DSH 左侧栏加一个「邮件」入口，主面板里是完整�
 | 凭据       | macOS 钥匙串、libsecret、Windows Credential Locker；密钥不写入 config.json                                                           |
 | 迁移       | 导出/导入 JSON：账号（不含密钥）、签名与阅读设置                                                                                     |
 | Agent 工具 | `mail_status`、`mail_list`、`mail_read`、`mail_search`、`mail_drafts`、`mail_draft`、`mail_backup`                                   |
-| 设置       | DSH 设置 → MailHarbor：账号、服务器、连接检查、签名、阅读、列表数量、AI 模型与写作风格、项目根目录                                   |
+| 设置       | DSH 设置 → MailHarbor：账号、服务器、连接检查、签名、阅读、列表数量、AI 模型与写作风格、项目根目录、会话索引重建                     |
 | 布局       | 响应式：文件夹栏变抽屉，列表/阅读单栏切换，AI 助手变浮层，阅读操作收进「更多」                                                       |
 
 ## 界面

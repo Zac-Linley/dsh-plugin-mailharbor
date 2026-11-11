@@ -34,7 +34,7 @@ and read state.
 | Credentials | macOS Keychain, libsecret, Windows Credential Locker; secrets never enter `config.json`                                                                                                       |
 | Migration   | Export/import a JSON profile: accounts without secrets, signature and reading settings                                                                                                        |
 | Agent tools | `mail_status`, `mail_list`, `mail_read`, `mail_search`, `mail_drafts`, `mail_draft`, `mail_backup`                                                                                            |
-| Settings    | DSH Settings → MailHarbor: accounts, servers, checks, signature, reading, list size, AI model and writing style, project root                                                                 |
+| Settings    | DSH Settings → MailHarbor: accounts, servers, checks, signature, reading, list size, AI model and writing style, project root, conversation index rebuild                                     |
 | Layout      | Responsive shell: the folder column becomes a drawer, list/reader switch to one pane, AI rail becomes an overlay, reader actions collapse behind 更多                                         |
 
 ## Screenshots
