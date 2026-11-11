@@ -108,6 +108,8 @@ export interface MessageSummary {
   date: string
   unread: boolean
   flagged: boolean
+  /** Locally tracked star (mirrored to IMAP \Flagged when possible). */
+  starred?: boolean
   hasAttachments: boolean
   snippet: string
   size?: number

@@ -4,6 +4,7 @@ import type { Account, BackupStatus, ImapSettings } from '../shared/types.js'
 import { CredentialManager } from './accounts.js'
 import { AiService } from './ai.js'
 import { AiThreadStore } from './ai-store.js'
+import { MailFlagsStore } from './mail-flags.js'
 import { ProjectStore } from './projects.js'
 import { TaskStore } from './tasks.js'
 import type { DshLlm, DshSessions, DshWorkspaceRegistry } from './dsh.js'
@@ -57,6 +58,7 @@ export class MailHarborRuntime {
   private aiService: AiService | null = null
   private projectStore: ProjectStore | null = null
   private taskStore: TaskStore | null = null
+  private readonly flagStores = new Map<string, { signature: string; value: MailFlagsStore }>()
   private disposed = false
 
   constructor(
@@ -238,6 +240,15 @@ export class MailHarborRuntime {
     if (existing !== undefined && existing.signature === file) return existing.value
     const created = new AiThreadStore(file)
     this.aiStores.set(account.id, { signature: file, value: created })
+    return created
+  }
+
+  flags(account: Account): MailFlagsStore {
+    const file = join(this.paths(account).root, 'starred.json')
+    const existing = this.flagStores.get(account.id)
+    if (existing !== undefined && existing.signature === file) return existing.value
+    const created = new MailFlagsStore(file)
+    this.flagStores.set(account.id, { signature: file, value: created })
     return created
   }
 

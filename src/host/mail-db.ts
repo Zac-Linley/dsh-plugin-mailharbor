@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import type { AttachmentMeta, MessageDetail, MessageSummary, Page } from '../shared/types.js'
 import { parseAddressList } from './address.js'
+import { inlineCidImages } from './inline-images.js'
 
 /** The layout the backup engine writes; read here by the panel and tools. */
 const SCHEMA = `
@@ -378,13 +379,18 @@ export class MailDatabase {
       )
       .get(localId)
     if (row === undefined) return undefined
-    const cidText = String(row.body_html ?? '').toLowerCase()
+    const bodyHtml = String(row.body_html ?? '')
+    const cidText = bodyHtml.toLowerCase()
+    const wantsInline = cidText.includes('cid:')
     const attachmentColumns = this.hasAttachmentColumns()
       ? 'id, filename, content_type, size, content_id, disposition'
       : 'id, filename, content_type, size'
-    const attachments = db
-      .prepare(`SELECT ${attachmentColumns} FROM attachments WHERE email_id = ? ORDER BY id`)
+    const rows = db
+      .prepare(
+        `SELECT ${attachmentColumns}${wantsInline ? ', data, hash' : ''} FROM attachments WHERE email_id = ? ORDER BY id`,
+      )
       .all(localId)
+    const attachments = rows
       .filter((item: Record<string, unknown>) => {
         const type = String(item.content_type ?? '').toLowerCase()
         if (!type.startsWith('image/')) return true
@@ -406,15 +412,45 @@ export class MailDatabase {
       }))
     const max = this.options.maxBodyChars ?? 400_000
     const bodyText = String(row.body_text ?? '')
-    const bodyHtml = String(row.body_html ?? '')
+    const inlineImages = wantsInline
+      ? (rows as Record<string, unknown>[])
+          .filter((item) =>
+            String(item.content_type ?? '')
+              .toLowerCase()
+              .startsWith('image/'),
+          )
+          .map((item) => ({
+            cid:
+              item.content_id === null || item.content_id === undefined ? undefined : String(item.content_id),
+            filename: String(item.filename ?? ''),
+            contentType: String(item.content_type ?? 'image/png'),
+            data: this.attachmentBytes(item),
+          }))
+          .filter((item) => item.data !== undefined)
+      : []
     return {
       ...rowToSummary(row),
       cc: parseAddressList(String(row.cc ?? '')),
       replyTo: [],
       text: truncate(bodyText, max),
-      html: bodyHtml === '' ? null : truncate(bodyHtml, max * 2),
+      html: bodyHtml === '' ? null : truncate(inlineCidImages(bodyHtml, inlineImages), max * 2),
       attachments,
       references: [],
+    }
+  }
+
+  private attachmentBytes(row: Record<string, unknown>): Uint8Array | undefined {
+    const data = row.data
+    if (data instanceof Uint8Array) return data
+    const hash = typeof row.hash === 'string' ? row.hash : ''
+    const root = this.options.attachmentsRoot ?? ''
+    if (hash === '' || root === '') return undefined
+    const file = `${root}/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`
+    if (!existsSync(file)) return undefined
+    try {
+      return readFileSyncSafe(file) ?? undefined
+    } catch {
+      return undefined
     }
   }
 

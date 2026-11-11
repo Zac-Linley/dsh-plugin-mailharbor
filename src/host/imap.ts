@@ -2,6 +2,7 @@ import { ImapFlow } from 'imapflow'
 import { simpleParser } from 'mailparser'
 import type { Address, AttachmentMeta, ImapSettings } from '../shared/types.js'
 import { addressOf, formatAddressList, parseAddressList } from './address.js'
+import { inlineCidImages } from './inline-images.js'
 
 export interface ImapCredentials {
   user: string
@@ -370,10 +371,23 @@ export class ImapProvider {
             : Buffer.isBuffer(parsed.html)
               ? parsed.html.toString('utf8')
               : null
+        const inlineImages = (parsed.attachments ?? [])
+          .filter((attachment) => {
+            const type = String(attachment.contentType ?? '').toLowerCase()
+            return type.startsWith('image/') && attachment.content !== undefined
+          })
+          .map((attachment) => ({
+            cid: attachment.cid,
+            filename: attachment.filename,
+            contentType: String(attachment.contentType ?? 'image/png'),
+            data: Buffer.isBuffer(attachment.content)
+              ? attachment.content
+              : new Uint8Array(attachment.content as Uint8Array),
+          }))
         const detail: ImapFullMessage = {
           ...base,
           text: typeof parsed.text === 'string' ? parsed.text : '',
-          html: html === '' ? null : html,
+          html: html === null || html === '' ? null : inlineCidImages(html, inlineImages),
           attachments: attachmentList(parsed),
           inReplyTo: normalizeId(parsed.inReplyTo),
           references: String(parsed.references ?? '')
@@ -436,6 +450,30 @@ export class ImapProvider {
           }
         }
         return { count: uids.length, items }
+      } finally {
+        lock.release()
+      }
+    })
+  }
+
+  async setFlag(mailbox: string, uid: number, flag: string, value: boolean): Promise<void> {
+    return this.run(async (client) => {
+      const lock = await client.getMailboxLock(mailbox)
+      try {
+        if (value) await client.messageFlagsAdd(String(uid), [flag], { uid: true })
+        else await client.messageFlagsRemove(String(uid), [flag], { uid: true })
+      } finally {
+        lock.release()
+      }
+    })
+  }
+
+  /** Move one message to another mailbox (server-side). */
+  async move(mailbox: string, uid: number, target: string): Promise<void> {
+    return this.run(async (client) => {
+      const lock = await client.getMailboxLock(mailbox)
+      try {
+        await client.messageMove(String(uid), target, { uid: true })
       } finally {
         lock.release()
       }

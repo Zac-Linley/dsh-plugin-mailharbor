@@ -27,6 +27,7 @@ import {
 } from './config.js'
 import { resolveUserPath } from './paths.js'
 import { openPath, pickDirectory } from './picker.js'
+import { moveLocalMessage } from './mail-write.js'
 import { BackupEngine } from './backup.js'
 import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestContext } from './http.js'
 import { normalizeTranslated, summaryBlocks, textToHtml } from './ai.js'
@@ -168,6 +169,99 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       return { id: String(found.id), mailbox: found.mailbox, subject: '' }
     }
     throw new HttpError(400, '无法定位这封邮件')
+  })
+
+  router.post('/messages/:id/star', async ({ url, params, body }) => {
+    const payload = await body()
+    const { account } = accountFrom(runtime, url)
+    const detail = await loadDetail(
+      runtime,
+      account,
+      sourceOfPayload(payload),
+      String(params.id ?? ''),
+      mailboxOfPayload(payload),
+    )
+    const starred = payload.starred !== false
+    const key = messageKeyOf(detail)
+    runtime.flags(account).set(key, starred)
+    if (detail.uid !== undefined) {
+      try {
+        await runtime.provider(account).setFlag(detail.mailbox, detail.uid, '\\Flagged', starred)
+      } catch {
+        // Local-first: the star still shows even when the server is offline.
+      }
+    }
+    return { starred }
+  })
+
+  router.post('/messages/:id/move', async ({ url, params, body }) => {
+    const payload = await body()
+    const { account } = accountFrom(runtime, url)
+    const target = String(payload.target ?? '').trim()
+    if (target === '') throw new HttpError(400, '缺少目标文件夹')
+    const detail = runtime.database(account).get(Number(params.id))
+    if (detail === undefined) throw new HttpError(404, '邮件不存在')
+    if (detail.uid !== undefined) {
+      try {
+        await runtime.provider(account).move(detail.mailbox, detail.uid, target)
+      } catch {
+        // Keep the local move: archived mail may no longer exist on the server.
+      }
+    }
+    moveLocalMessage(runtime.paths(account).mailDb, Number(params.id), target)
+    return { ok: true, mailbox: target }
+  })
+
+  router.post('/messages/bulk', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const action = String(payload.action ?? '')
+    const ids = Array.isArray(payload.ids) ? payload.ids.map((id) => Number(id)) : []
+    if (ids.length === 0) return { ok: true, count: 0 }
+    const database = runtime.database(account)
+    const flags = runtime.flags(account)
+    const readState = runtime.readState(account)
+    let count = 0
+    for (const id of ids) {
+      const detail = database.get(id)
+      if (detail === undefined) continue
+      const key = messageKeyOf(detail)
+      if (action === 'read' || action === 'unread') {
+        readState.setUnread(key, action === 'unread')
+        if (detail.uid !== undefined) {
+          try {
+            await runtime.provider(account).setSeen(detail.mailbox, detail.uid, action === 'read')
+          } catch {
+            // Keep the local state.
+          }
+        }
+        count += 1
+      } else if (action === 'archive' || action === 'delete' || action === 'move') {
+        const target = String(payload.target ?? '').trim()
+        if (target === '') continue
+        if (detail.uid !== undefined) {
+          try {
+            await runtime.provider(account).move(detail.mailbox, detail.uid, target)
+          } catch {
+            // Archived mail may no longer exist on the server.
+          }
+        }
+        moveLocalMessage(runtime.paths(account).mailDb, Number(detail.id), target)
+        count += 1
+      } else if (action === 'star' || action === 'unstar') {
+        const starred = action === 'star'
+        flags.set(key, starred)
+        if (detail.uid !== undefined) {
+          try {
+            await runtime.provider(account).setFlag(detail.mailbox, detail.uid, '\\Flagged', starred)
+          } catch {
+            // Local only.
+          }
+        }
+        count += 1
+      }
+    }
+    return { ok: true, count }
   })
 
   router.get('/messages/:id', async ({ url, params }) => {
@@ -1089,10 +1183,20 @@ function unreadKeys(runtime: MailHarborRuntime, account: Account): { mids: strin
   return { mids, ids }
 }
 
+function messageKeyOf(row: { messageId?: string; id: string }): string {
+  return row.messageId !== undefined && row.messageId !== '' ? `mid:${row.messageId}` : `local:${row.id}`
+}
+
 function localSummary(runtime: MailHarborRuntime, account: Account, row: MessageSummary): MessageSummary {
   const store = runtime.readState(account)
-  const key = row.messageId !== undefined && row.messageId !== '' ? `mid:${row.messageId}` : `local:${row.id}`
-  return { ...row, accountId: account.id, unread: store.isUnread(key), backedUp: true }
+  const key = messageKeyOf(row)
+  return {
+    ...row,
+    accountId: account.id,
+    unread: store.isUnread(key),
+    starred: runtime.flags(account).has(key),
+    backedUp: true,
+  }
 }
 
 function localDetail(runtime: MailHarborRuntime, account: Account, detail: MessageDetail): MessageDetail {

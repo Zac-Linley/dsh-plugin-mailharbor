@@ -128,6 +128,11 @@ export function Reader({
   thread = [],
   onSelectMessage,
   loadDetail,
+  folders = [],
+  onStar,
+  onArchive,
+  onDelete,
+  onMove,
 }: {
   detail: MessageDetail
   source: 'local' | 'server'
@@ -141,6 +146,11 @@ export function Reader({
   thread?: MessageSummary[]
   onSelectMessage?: (item: MessageSummary) => void
   loadDetail?: (item: MessageSummary) => Promise<MessageDetail>
+  folders?: { name: string; label: string }[]
+  onStar?: (starred: boolean) => void
+  onArchive?: () => void
+  onDelete?: () => void
+  onMove?: (target: string) => void
 }): ReactNode {
   const [plain, setPlain] = useState(false)
   const [loadImages, setLoadImages] = useState(false)
@@ -215,6 +225,19 @@ export function Reader({
               h(Icon, { name: 'chevronLeft' }),
             ),
         h('h2', { style: { flex: 1 } }, detail.subject),
+        onStar === undefined
+          ? null
+          : h(
+              'button',
+              {
+                className: 'ghost icon',
+                title: detail.starred === true ? '取消星标' : '标星',
+                'aria-label': detail.starred === true ? '取消星标' : '标星',
+                style: detail.starred === true ? { color: '#e0b341' } : undefined,
+                onClick: () => onStar(detail.starred !== true),
+              },
+              h(Icon, { name: 'star', size: 15 }),
+            ),
         h(
           'button',
           {
@@ -282,6 +305,39 @@ export function Reader({
           h(Icon, { name: 'forward' }),
           '转发',
         ),
+        h('span', { className: 'mailharbor-divider' }),
+        onArchive === undefined
+          ? null
+          : h(
+              'button',
+              { className: 'ghost', onClick: onArchive, title: '移到归档文件夹' },
+              h(Icon, { name: 'archive', size: 14 }),
+              '归档',
+            ),
+        onDelete === undefined
+          ? null
+          : h(
+              'button',
+              { className: 'ghost', onClick: onDelete, title: '移到垃圾箱' },
+              h(Icon, { name: 'trash', size: 14 }),
+              '删除',
+            ),
+        onMove === undefined || folders.length === 0
+          ? null
+          : h(
+              'select',
+              {
+                value: '',
+                'aria-label': '移动到文件夹',
+                title: '移动到文件夹',
+                onChange: (event: { target: { value: string; selectedIndex?: number } }) => {
+                  const target = event.target.value
+                  if (target !== '') onMove(target)
+                },
+              },
+              h('option', { value: '' }, '移动到…'),
+              folders.map((folder) => h('option', { key: folder.name, value: folder.name }, folder.label)),
+            ),
         h('span', { className: 'mailharbor-divider' }),
         h(
           'button',

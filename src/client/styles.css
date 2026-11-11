@@ -2776,3 +2776,16 @@
   background: var(--m-accent-soft);
   color: var(--m-text);
 }
+
+.mailharbor-starred {
+  display: inline-flex;
+  align-items: center;
+  color: #e0b341;
+  flex: none;
+}
+
+.mailharbor-reader-actions select {
+  height: 28px;
+  max-width: 130px;
+  font-size: 11.5px;
+}

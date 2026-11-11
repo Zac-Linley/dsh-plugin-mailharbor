@@ -118,6 +118,41 @@ export const api = {
   message: (params: { id: string; accountId?: string | null; source: 'local' | 'server'; mailbox: string }) =>
     request<MessageDetail>(`messages/${encodeURIComponent(params.id)}${query({ ...params })}`),
 
+  star: (params: {
+    id: string
+    accountId?: string | null
+    source: 'local' | 'server'
+    mailbox: string
+    starred: boolean
+  }) =>
+    request<{ starred: boolean }>(
+      `messages/${encodeURIComponent(params.id)}/star${query({
+        accountId: params.accountId ?? null,
+        source: params.source,
+        mailbox: params.mailbox,
+      })}`,
+      { method: 'POST', body: JSON.stringify({ starred: params.starred }) },
+    ),
+
+  moveMessage: (params: { id: string; accountId?: string | null; mailbox: string; target: string }) =>
+    request<{ ok: true; mailbox: string }>(
+      `messages/${encodeURIComponent(params.id)}/move${query({
+        accountId: params.accountId ?? null,
+      })}`,
+      { method: 'POST', body: JSON.stringify({ target: params.target }) },
+    ),
+
+  bulkAction: (payload: {
+    accountId?: string | null
+    action: 'read' | 'unread' | 'star' | 'unstar' | 'archive' | 'delete' | 'move'
+    target?: string
+    ids: string[]
+  }) =>
+    request<{ ok: true; count: number }>('messages/bulk', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   setRead: (params: {
     id: string
     accountId?: string | null

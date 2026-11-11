@@ -818,6 +818,96 @@ export function MailPanel(): ReactNode {
     }
   }
 
+  const archiveFolder = (): string => folders.find((folder) => /archive|存档/i.test(folder.name))?.name ?? ''
+  const trashFolder = (): string =>
+    folders.find((folder) => /trash|deleted|已删除/i.test(folder.name))?.name ?? ''
+
+  const starMessage = async (starred: boolean): Promise<void> => {
+    if (selected === null) return
+    try {
+      await api.star({
+        id: selected.id,
+        accountId: selected.accountId,
+        source,
+        mailbox,
+        starred,
+      })
+      setSelected({ ...selected, starred })
+      setPage((current) => ({
+        ...current,
+        items: current.items.map((row) =>
+          row.id === selected.id && row.accountId === selected.accountId ? { ...row, starred } : row,
+        ),
+      }))
+    } catch (caught) {
+      setError(errorText(caught))
+    }
+  }
+
+  const moveCurrent = async (target: string, message: string): Promise<void> => {
+    if (selected === null) return
+    try {
+      await api.moveMessage({ id: selected.id, accountId: selected.accountId, mailbox, target })
+      setSelected(null)
+      notice(message)
+      refresh()
+    } catch (caught) {
+      setError(errorText(caught))
+    }
+  }
+
+  const archiveMessage = (): void => {
+    const target = archiveFolder()
+    if (target === '') {
+      notice('没有找到归档文件夹')
+      return
+    }
+    void moveCurrent(target, '已归档')
+  }
+
+  const deleteMessage = (): void => {
+    const target = trashFolder()
+    if (target === '') {
+      notice('没有找到垃圾箱文件夹')
+      return
+    }
+    void moveCurrent(target, '已移到垃圾箱')
+  }
+
+  const runBulk = async (action: 'read' | 'unread' | 'star' | 'archive' | 'delete'): Promise<void> => {
+    const ids = selectedKeys.map((key) => key.slice(key.lastIndexOf(':') + 1))
+    if (ids.length === 0 || accountScope === null) return
+    const target = action === 'archive' ? archiveFolder() : action === 'delete' ? trashFolder() : ''
+    if ((action === 'archive' || action === 'delete') && target === '') {
+      notice(action === 'archive' ? '没有找到归档文件夹' : '没有找到垃圾箱文件夹')
+      return
+    }
+    try {
+      await api.bulkAction({
+        accountId: accountScope,
+        action,
+        ids,
+        ...(target === '' ? {} : { target }),
+      })
+      notice(
+        action === 'read'
+          ? '已标为已读'
+          : action === 'unread'
+            ? '已标为未读'
+            : action === 'star'
+              ? '已标星'
+              : action === 'archive'
+                ? '已归档'
+                : '已移到垃圾箱',
+      )
+      setSelectMode(false)
+      setSelectedKeys([])
+      refresh()
+    } catch (caught) {
+      setError(errorText(caught))
+    }
+  }
+
   const startCompose = (mode: ComposeInit['mode']): void => {
     const owner = account ?? accounts.find((item) => item.id === state?.activeAccountId) ?? accounts[0]
     if (owner === undefined) return
@@ -1076,6 +1166,13 @@ export function MailPanel(): ReactNode {
             : null,
         sent ? h('span', { className: 'to-label' }, '收件人 ') : null,
         h('span', { className: 'from' }, `${who}${extra}`),
+        item.starred
+          ? h(
+              'span',
+              { className: 'mailharbor-starred', title: '已标星' },
+              h(Icon, { name: 'star', size: 12 }),
+            )
+          : null,
         item.hasAttachments ? h(Icon, { name: 'paperclip', size: 13 }) : null,
         source === 'local' && item.backedUp === false
           ? h('span', { className: 'badge warn' }, '未备份')
@@ -1437,6 +1534,16 @@ export function MailPanel(): ReactNode {
                     },
                     '加入项目',
                   ),
+                  h('span', { className: 'mailharbor-divider' }),
+                  h('button', { className: 'ghost small', onClick: () => void runBulk('read') }, '已读'),
+                  h('button', { className: 'ghost small', onClick: () => void runBulk('unread') }, '未读'),
+                  h('button', { className: 'ghost small', onClick: () => void runBulk('star') }, '标星'),
+                  h('button', { className: 'ghost small', onClick: () => void runBulk('archive') }, '归档'),
+                  h(
+                    'button',
+                    { className: 'ghost small danger', onClick: () => void runBulk('delete') },
+                    '删除',
+                  ),
                   h(
                     'button',
                     {
@@ -1672,6 +1779,14 @@ export function MailPanel(): ReactNode {
                     thread: threadItems,
                     onSelectMessage: (item) => void openMessage(item),
                     loadDetail: loadDetailFor,
+                    folders: folders.map((folder) => ({
+                      name: folder.name,
+                      label: folderName(folder.label ?? folder.name),
+                    })),
+                    onStar: (starred) => void starMessage(starred),
+                    onArchive: archiveMessage,
+                    onDelete: deleteMessage,
+                    onMove: (target) => void moveCurrent(target, '已移动'),
                   }),
           ),
           railOpen
