@@ -30,6 +30,7 @@ import { openPath, pickDirectory } from './picker.js'
 import { existsSync, rmSync } from 'node:fs'
 import { moveLocalMessage } from './mail-write.js'
 import { draftMime } from './draft-mime.js'
+import { optimizeDatabase } from './references.js'
 import { BackupEngine } from './backup.js'
 import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestContext } from './http.js'
 import { normalizeTranslated, summaryBlocks, textToHtml } from './ai.js'
@@ -272,6 +273,11 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       }
     }
     return { ok: true, count }
+  })
+
+  router.post('/maintenance/optimize', ({ url }) => {
+    const { account } = accountFrom(runtime, url)
+    return optimizeDatabase(runtime.paths(account).mailDb)
   })
 
   router.get('/maintenance/references', ({ url }) => {
@@ -1539,7 +1545,8 @@ function writeAttachment(
     'content-disposition',
     `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(filename)}`,
   )
-  res.setHeader('cache-control', 'no-store')
+  // Attachments are immutable content; let the browser cache previews.
+  res.setHeader('cache-control', 'private, max-age=86400')
   res.setHeader('x-content-type-options', 'nosniff')
   // Attachment payloads are untrusted; a sandbox CSP stops scripts even if a
   // file is opened directly in the browser.

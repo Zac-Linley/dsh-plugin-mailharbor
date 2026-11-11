@@ -33,8 +33,10 @@ function csp(allowRemoteImages: boolean): string {
 }
 
 function srcDoc(detail: MessageDetail, allowRemoteImages: boolean): string {
-  const html =
+  const raw =
     detail.html !== null && detail.html !== '' ? detail.html : `<pre>${escapeHtml(detail.text)}</pre>`
+  // Decode off-screen images only when they approach the viewport.
+  const html = raw.replace(/<img\b(?![^>]*\bloading=)/gi, '<img loading="lazy" decoding="async"')
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp(allowRemoteImages)}"><style>${IFRAME_STYLE}</style></head><body>${html}</body></html>`
 }
 
@@ -554,11 +556,6 @@ export function Reader({
                       { className: 'thread-date', title: longDate(item.date) },
                       threadStamp(item.date),
                     ),
-                  ),
-                  h(
-                    'span',
-                    { className: 'thread-snippet' },
-                    item.snippet === '' ? (expandedItem ? '' : '（无正文预览）') : item.snippet,
                   ),
                 ),
                 expandedItem

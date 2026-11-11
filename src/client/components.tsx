@@ -1,4 +1,4 @@
-import { createElement as h, useEffect, type ReactNode } from 'react'
+import { createElement as h, useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 export function Avatar({ email, size = 26 }: { email: string; size?: number }): ReactNode {
@@ -83,13 +83,43 @@ export function Modal({
   onClose: () => void
   wide?: boolean
 }): ReactNode {
+  const modalRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
+    const previous = document.activeElement
+    const node = modalRef.current
+    const focusable = (): HTMLElement[] =>
+      node === null
+        ? []
+        : [
+            ...node.querySelectorAll<HTMLElement>(
+              'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+            ),
+          ].filter((element) => !element.hasAttribute('disabled') && element.offsetParent !== null)
+    const first = focusable()[0] ?? node
+    first?.focus()
+    const onTab = (event: KeyboardEvent): void => {
+      if (event.key !== 'Tab') return
+      const list = focusable()
+      if (list.length === 0) return
+      const start = list[0]
+      const end = list[list.length - 1]
+      if (event.shiftKey && document.activeElement === start) {
+        event.preventDefault()
+        end?.focus()
+      } else if (!event.shiftKey && document.activeElement === end) {
+        event.preventDefault()
+        start?.focus()
+      }
+    }
+    document.addEventListener('keydown', onTab, true)
     return () => {
       window.removeEventListener('keydown', onKey)
+      document.removeEventListener('keydown', onTab, true)
+      if (previous instanceof HTMLElement) previous.focus()
     }
   }, [onClose])
   return createPortal(
@@ -104,6 +134,8 @@ export function Modal({
       h(
         'div',
         {
+          ref: modalRef,
+          tabIndex: -1,
           className: 'mailharbor-modal',
           style: wide ? { width: 'min(920px, 100%)' } : undefined,
           role: 'dialog',

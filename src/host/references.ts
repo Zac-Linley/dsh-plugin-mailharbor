@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { ensureMailSchema } from './mail-db.js'
+import { subjectKey } from './subject-key.js'
 
 export interface ReferenceHeaders {
   inReplyTo: string | null
@@ -67,6 +68,68 @@ export function backfillReferences(file: string, batchSize = 300): BackfillResul
     }
     const remaining = Number(
       db.prepare('SELECT COUNT(*) AS count FROM emails WHERE refs_indexed = 0').get()?.count ?? 0,
+    )
+    return { updated: rows.length, remaining }
+  } finally {
+    db.close()
+  }
+}
+
+/** Lightweight upkeep: SQLite planner stats, FTS compaction and a WAL checkpoint. */
+export function optimizeDatabase(file: string): { ok: boolean; error?: string } {
+  ensureMailSchema(file)
+  const db = new DatabaseSync(file)
+  try {
+    db.exec('PRAGMA busy_timeout = 10000')
+    db.exec('PRAGMA optimize')
+    try {
+      db.exec("INSERT INTO emails_fts(emails_fts) VALUES('optimize')")
+    } catch {
+      // FTS may be unavailable; the rest is still useful.
+    }
+    try {
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    } catch {
+      // A reader may hold the WAL; skip the checkpoint.
+    }
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  } finally {
+    db.close()
+  }
+}
+
+/** Build the normalized subject key table used by conversation lookups. */
+export function backfillSubjects(file: string, batchSize = 300): BackfillResult {
+  ensureMailSchema(file)
+  const db = new DatabaseSync(file)
+  try {
+    db.exec('PRAGMA busy_timeout = 10000')
+    const rows = db
+      .prepare(
+        `SELECT e.id, e.subject FROM emails e
+         WHERE NOT EXISTS (SELECT 1 FROM email_subjects s WHERE s.email_id = e.id)
+         ORDER BY e.id LIMIT ?`,
+      )
+      .all(batchSize) as { id?: number; subject?: string }[]
+    if (rows.length === 0) return { updated: 0, remaining: 0 }
+    const insert = db.prepare('INSERT OR REPLACE INTO email_subjects (email_id, key) VALUES (?, ?)')
+    db.exec('BEGIN')
+    try {
+      for (const row of rows) insert.run(Number(row.id), subjectKey(String(row.subject ?? '')))
+      db.exec('COMMIT')
+    } catch (error) {
+      db.exec('ROLLBACK')
+      throw error
+    }
+    const remaining = Number(
+      db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM emails e
+           WHERE NOT EXISTS (SELECT 1 FROM email_subjects s WHERE s.email_id = e.id)`,
+        )
+        .get()?.count ?? 0,
     )
     return { updated: rows.length, remaining }
   } finally {

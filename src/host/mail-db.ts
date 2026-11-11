@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import type { AttachmentMeta, MessageDetail, MessageSummary, Page } from '../shared/types.js'
 import { parseAddressList } from './address.js'
+import { subjectKey } from './subject-key.js'
 import { inlineCidImages } from './inline-images.js'
 
 /** The layout the backup engine writes; read here by the panel and tools. */
@@ -96,6 +97,8 @@ export function ensureMailSchema(file: string): void {
       db.exec('ALTER TABLE emails ADD COLUMN refs_indexed INTEGER DEFAULT 0')
     }
     try {
+      db.exec('CREATE TABLE IF NOT EXISTS email_subjects (email_id INTEGER PRIMARY KEY, key TEXT NOT NULL)')
+      db.exec('CREATE INDEX IF NOT EXISTS idx_email_subjects_key ON email_subjects(key)')
       db.exec('CREATE INDEX IF NOT EXISTS idx_emails_in_reply ON emails(in_reply_to)')
       db.exec('CREATE INDEX IF NOT EXISTS idx_emails_message_id_lower ON emails(lower(message_id))')
     } catch {
@@ -526,88 +529,53 @@ export class MailDatabase {
     return result
   }
 
-  /** Subject candidates via a distinctive token, not FTS (punctuation-safe). */
+  /** Subject candidates from a normalized-key table, then FTS, then LIKE. */
   private threadCandidates(base: string, limit: number, seedId = ''): MessageSummary[] {
-    const normalize = (value: string): string =>
-      value
-        .replace(/^(\s*(re|fw|fwd|回复|转发)\s*[:：]\s*)+/gi, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLowerCase()
-    const words = base.split(/[^\p{L}\p{N}]+/u).filter((word) => word.length >= 3)
-    const token = words.sort((left, right) => right.length - left.length)[0] ?? base.slice(0, 8)
     const select = `SELECT e.id, e.mailbox, e.uid, e.subject, e.from_name, e.from_addr, e.to_addr, e.cc,
                   e.message_id, e.date, length(e.body_text) AS text_length,
                   (SELECT COUNT(*) FROM attachments a WHERE a.email_id = e.id) AS attachment_count,
                   substr(COALESCE(e.body_text, ''), 1, 240) AS snippet
            FROM emails e`
+    let items: MessageSummary[] = []
     try {
-      // FTS avoids a full table scan: raw EML blobs make that extremely slow.
-      const ftsQuery = `subject:"${token.replace(/"/g, '""')}"`
-      const rows = this.open()
+      const byKey = this.open()
         .prepare(
-          `${select} JOIN emails_fts f ON f.rowid = e.id
-           WHERE emails_fts MATCH ?
+          `${select} JOIN email_subjects s ON s.email_id = e.id
+           WHERE s.key = ?
            ORDER BY e.date DESC LIMIT 500`,
         )
-        .all(ftsQuery) as Record<string, unknown>[]
-      const items = rows.map((row) => rowToSummary(row)).filter((item) => normalize(item.subject) === base)
-      if (seedId !== '' && this.hasRefColumns()) {
+        .all(base) as Record<string, unknown>[]
+      if (byKey.length > 0) {
+        items = byKey.map((row) => rowToSummary(row))
+      } else {
+        const words = base.split(/[^\p{L}\p{N}]+/u).filter((word) => word.length >= 3)
+        const token = words.sort((left, right) => right.length - left.length)[0] ?? base.slice(0, 8)
+        // FTS avoids a full table scan: raw EML blobs make that extremely slow.
+        const ftsQuery = `subject:"${token.replace(/"/g, '""')}"`
+        const rows = this.open()
+          .prepare(
+            `${select} JOIN emails_fts f ON f.rowid = e.id
+             WHERE emails_fts MATCH ?
+             ORDER BY e.date DESC LIMIT 500`,
+          )
+          .all(ftsQuery) as Record<string, unknown>[]
+        items = rows.map((row) => rowToSummary(row)).filter((item) => subjectKey(item.subject) === base)
+      }
+    } catch {
+      // No FTS5 (or an unusable MATCH): fall back to the normal list search.
+      const page = this.list({ mailbox: 'all', query: base, limit: Math.min(500, limit * 2) })
+      return page.items.filter((item) => subjectKey(item.subject) === base).slice(0, limit)
+    }
+    if (seedId !== '' && this.hasRefColumns()) {
+      try {
         const linked = this.open()
           .prepare(
-            `SELECT e.id, e.mailbox, e.uid, e.subject, e.from_name, e.from_addr, e.to_addr, e.cc,
-                    e.message_id, e.date, length(e.body_text) AS text_length,
-                    (SELECT COUNT(*) FROM attachments a WHERE a.email_id = e.id) AS attachment_count,
-                    substr(COALESCE(e.body_text, ''), 1, 240) AS snippet
-             FROM emails e
+            `${select}
              WHERE e.in_reply_to = ?
              ORDER BY e.date DESC LIMIT 100`,
           )
           .all(seedId) as Record<string, unknown>[]
         const known = new Set(items.map((item) => item.id))
-        try {
-          const seedRow = this.open()
-            .prepare(
-              'SELECT in_reply_to, "references", raw_eml FROM emails WHERE lower(message_id) = ? LIMIT 1',
-            )
-            .get(seedId) as
-            | {
-                in_reply_to?: string | null
-                references?: string | null
-                raw_eml?: Uint8Array | null
-              }
-            | undefined
-          const parents = `${seedRow?.references ?? ''} ${seedRow?.in_reply_to ?? ''}`
-            .split(/\s+/)
-            .map((item) => item.replace(/^<|>$/g, '').toLowerCase())
-            .filter((item) => item.includes('@'))
-          if (parents.length === 0 && seedRow?.raw_eml !== undefined && seedRow.raw_eml !== null) {
-            for (const header of ['references', 'in-reply-to']) {
-              for (const found of headerIds(seedRow.raw_eml, header)) parents.push(found)
-            }
-          }
-          if (parents.length > 0) {
-            const marks = parents.map(() => '?').join(',')
-            const ancestors = this.open()
-              .prepare(
-                `SELECT e.id, e.mailbox, e.uid, e.subject, e.from_name, e.from_addr, e.to_addr, e.cc,
-                        e.message_id, e.date, length(e.body_text) AS text_length,
-                        (SELECT COUNT(*) FROM attachments a WHERE a.email_id = e.id) AS attachment_count,
-                        substr(COALESCE(e.body_text, ''), 1, 240) AS snippet
-                 FROM emails e WHERE lower(e.message_id) IN (${marks}) LIMIT 100`,
-              )
-              .all(...parents) as Record<string, unknown>[]
-            for (const row of ancestors) {
-              const item = rowToSummary(row)
-              if (!known.has(item.id)) {
-                items.push(item)
-                known.add(item.id)
-              }
-            }
-          }
-        } catch {
-          // Older backups may predate the reference columns.
-        }
         for (const row of linked) {
           const item = rowToSummary(row)
           if (!known.has(item.id)) {
@@ -615,13 +583,47 @@ export class MailDatabase {
             known.add(item.id)
           }
         }
+        const seedRow = this.open()
+          .prepare(
+            'SELECT in_reply_to, "references", raw_eml FROM emails WHERE lower(message_id) = ? LIMIT 1',
+          )
+          .get(seedId) as
+          | {
+              in_reply_to?: string | null
+              references?: string | null
+              raw_eml?: Uint8Array | null
+            }
+          | undefined
+        const parents = `${seedRow?.references ?? ''} ${seedRow?.in_reply_to ?? ''}`
+          .split(/\s+/)
+          .map((item) => item.replace(/^<|>$/g, '').toLowerCase())
+          .filter((item) => item.includes('@'))
+        if (parents.length === 0 && seedRow?.raw_eml !== undefined && seedRow.raw_eml !== null) {
+          for (const header of ['references', 'in-reply-to']) {
+            for (const found of headerIds(seedRow.raw_eml, header)) parents.push(found)
+          }
+        }
+        if (parents.length > 0) {
+          const marks = parents.map(() => '?').join(',')
+          const ancestors = this.open()
+            .prepare(
+              `${select}
+               WHERE lower(e.message_id) IN (${marks}) LIMIT 100`,
+            )
+            .all(...parents) as Record<string, unknown>[]
+          for (const row of ancestors) {
+            const item = rowToSummary(row)
+            if (!known.has(item.id)) {
+              items.push(item)
+              known.add(item.id)
+            }
+          }
+        }
+      } catch {
+        // Older backups may predate the reference columns.
       }
-      return items.slice(0, limit)
-    } catch {
-      // No FTS5 (or an unusable MATCH): fall back to the normal list search.
-      const page = this.list({ mailbox: 'all', query: base, limit: Math.min(500, limit * 2) })
-      return page.items.filter((item) => normalize(item.subject) === base).slice(0, limit)
     }
+    return items.slice(0, limit)
   }
 
   /** Read (and cache) In-Reply-To / References for a set of local ids. */

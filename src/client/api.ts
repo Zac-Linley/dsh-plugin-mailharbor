@@ -252,6 +252,11 @@ export const api = {
       error: string | null
     }>(`maintenance/references${query({ accountId })}`),
 
+  optimizeDatabase: (accountId: string) =>
+    request<{ ok: boolean; error?: string }>(`maintenance/optimize${query({ accountId })}`, {
+      method: 'POST',
+    }),
+
   startReferencesBackfill: (accountId: string) =>
     request<{
       running: boolean

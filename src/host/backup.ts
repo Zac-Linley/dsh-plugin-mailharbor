@@ -8,6 +8,7 @@ import { addressOf, formatAddressList, parseAddressList } from './address.js'
 import type { AccountRuntime } from './config.js'
 import { DatabaseSync } from 'node:sqlite'
 import { ensureMailSchema } from './mail-db.js'
+import { subjectKey } from './subject-key.js'
 import type { ImapCredentials } from './imap.js'
 
 export interface BackupEvent {
@@ -216,6 +217,10 @@ export class BackupEngine {
       )
     if (inserted.changes === 0) return 0
     const emailId = Number(inserted.lastInsertRowid)
+    db.prepare('INSERT OR REPLACE INTO email_subjects (email_id, key) VALUES (?, ?)').run(
+      emailId,
+      subjectKey(subject),
+    )
     const attachments = parsed.attachments ?? []
     const insertAttachment = db.prepare(
       'INSERT INTO attachments (email_id, filename, content_type, size, hash, content_id, disposition) VALUES (?, ?, ?, ?, ?, ?, ?)',

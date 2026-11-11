@@ -5,7 +5,7 @@ import { CredentialManager } from './accounts.js'
 import { AiService } from './ai.js'
 import { AiThreadStore } from './ai-store.js'
 import { MailFlagsStore } from './mail-flags.js'
-import { backfillReferences } from './references.js'
+import { backfillReferences, backfillSubjects } from './references.js'
 import { ProjectStore } from './projects.js'
 import { TaskStore } from './tasks.js'
 import type { DshLlm, DshSessions, DshWorkspaceRegistry } from './dsh.js'
@@ -217,6 +217,13 @@ export class MailHarborRuntime {
       try {
         for (;;) {
           const result = backfillReferences(dbFile, 300)
+          status.indexed += result.updated
+          status.remaining = result.remaining
+          if (result.remaining <= 0 || result.updated === 0) break
+          await new Promise((resolve) => setTimeout(resolve, 40))
+        }
+        for (;;) {
+          const result = backfillSubjects(dbFile, 300)
           status.indexed += result.updated
           status.remaining = result.remaining
           if (result.remaining <= 0 || result.updated === 0) break

@@ -129,6 +129,18 @@ function quoteForReply(detail: MessageDetail): string {
   return `<p><br></p><p>------------------ 原始邮件 ------------------</p><blockquote style="margin:0 0 0 12px;padding-left:12px;border-left:2px solid #d7dbe3;color:#565c67">${body}</blockquote>`
 }
 
+function highlight(text: string, query: string): ReactNode {
+  const term = query.trim()
+  if (term === '') return text
+  const index = text.toLowerCase().indexOf(term.toLowerCase())
+  if (index < 0) return text
+  return [
+    text.slice(0, index),
+    h('mark', { key: 'hit' }, text.slice(index, index + term.length)),
+    text.slice(index + term.length),
+  ]
+}
+
 export function MailPanel(): ReactNode {
   const [state, setState] = useState<AppState | null>(null)
   const [error, setError] = useState('')
@@ -877,6 +889,17 @@ export function MailPanel(): ReactNode {
           detailCache.set(key, { at: Date.now(), detail })
         })
         .catch(() => undefined)
+      const threadKey = `${item.accountId}:${normalizeSubject(item.subject)}`
+      if (!threadCache.current.has(threadKey)) {
+        void api
+          .thread(item.accountId, item.subject, item.messageId)
+          .then((result) => {
+            if (result.items.length > 0) {
+              threadCache.current.set(threadKey, { at: Date.now(), items: result.items })
+            }
+          })
+          .catch(() => undefined)
+      }
     }, 160)
   }
 
@@ -1318,8 +1341,14 @@ export function MailPanel(): ReactNode {
       ),
       meta.compact === true
         ? null
-        : h('span', { className: 'line-2' }, h('span', { className: 'subject' }, item.subject)),
-      item.snippet === '' ? null : h('span', { className: 'snippet' }, item.snippet),
+        : h(
+            'span',
+            { className: 'line-2' },
+            h('span', { className: 'subject' }, highlight(item.subject, aiInfo?.keywords[0] ?? search)),
+          ),
+      item.snippet === ''
+        ? null
+        : h('span', { className: 'snippet' }, highlight(item.snippet, aiInfo?.keywords[0] ?? search)),
     )
   }
 
@@ -1462,7 +1491,16 @@ export function MailPanel(): ReactNode {
     ),
     toast === ''
       ? null
-      : h('div', { className: 'small', style: { padding: '6px 14px', color: 'var(--m-ok)' } }, toast),
+      : h(
+          'div',
+          {
+            className: 'small',
+            role: 'status',
+            'aria-live': 'polite',
+            style: { padding: '6px 14px', color: 'var(--m-ok)' },
+          },
+          toast,
+        ),
     error === '' ? null : h(ErrorBar, { message: error, onDismiss: () => setError('') }),
     backup !== null &&
       backup !== undefined &&

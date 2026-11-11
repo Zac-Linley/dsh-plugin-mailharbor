@@ -265,19 +265,41 @@ export function MailSettings(): ReactNode {
                     : `剩余 ${String(refIndex.remaining ?? '?')} 封待处理。`,
             ),
         h(
-          'button',
-          {
-            className: 'ghost',
-            disabled: refIndex?.running === true || activeId === null,
-            onClick: () => {
-              if (activeId === null) return
-              void api
-                .startReferencesBackfill(activeId)
-                .then((status) => setRefIndex(status))
-                .catch((caught: unknown) => setError(errorText(caught)))
+          'div',
+          { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+          h(
+            'button',
+            {
+              className: 'ghost',
+              disabled: refIndex?.running === true || activeId === null,
+              onClick: () => {
+                if (activeId === null) return
+                void api
+                  .startReferencesBackfill(activeId)
+                  .then((status) => setRefIndex(status))
+                  .catch((caught: unknown) => setError(errorText(caught)))
+              },
             },
-          },
-          refIndex?.running === true ? '索引进行中…' : '重建旧邮件会话索引',
+            refIndex?.running === true ? '索引进行中…' : '重建旧邮件会话索引',
+          ),
+          h(
+            'button',
+            {
+              className: 'ghost',
+              disabled: activeId === null,
+              onClick: () => {
+                if (activeId === null) return
+                void api
+                  .optimizeDatabase(activeId)
+                  .then((result) => {
+                    if (result.ok) notify('数据库已优化')
+                    else setError(result.error ?? '数据库优化失败')
+                  })
+                  .catch((caught: unknown) => setError(errorText(caught)))
+              },
+            },
+            '优化数据库',
+          ),
         ),
       ),
       h(
