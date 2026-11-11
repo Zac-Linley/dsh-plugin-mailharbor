@@ -620,7 +620,7 @@ export function MailPanel(): ReactNode {
     }
     let cancelled = false
     api
-      .thread(selected.accountId, selected.subject)
+      .thread(selected.accountId, selected.subject, selected.messageId)
       .then((result) => {
         if (!cancelled) {
           setThreadItems(
@@ -1581,7 +1581,7 @@ export function MailPanel(): ReactNode {
                       attachmentOnly
                         ? 'ghost active'
                         : 'ghost',
-                    title: '筛选发件人、日期或附件',
+                    'aria-label': '筛选发件人、日期或附件',
                     onClick: () => setFilterOpen(!filterOpen),
                   },
                   h(Icon, { name: 'filter', size: 14 }),
@@ -1746,7 +1746,11 @@ export function MailPanel(): ReactNode {
               ? h(
                   'div',
                   { className: 'mailharbor-selectbar' },
-                  h('span', { className: 'small' }, `已选 ${String(selectedKeys.length)} 封`),
+                  h(
+                    'span',
+                    { className: 'small mailharbor-select-count' },
+                    `已选 ${String(selectedKeys.length)} 封`,
+                  ),
                   h('span', { className: 'spacer' }),
                   h(
                     'select',

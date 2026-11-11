@@ -349,10 +349,11 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     return { ok: true, addedAccounts: added, state: appState(runtime) }
   })
 
-  router.get('/messages/thread', ({ url }) => {
+  router.get('/messages/thread', async ({ url }) => {
     const { account } = accountFrom(runtime, url)
     const subject = url.searchParams.get('subject') ?? ''
-    const items = runtime.database(account).thread(subject)
+    const messageId = url.searchParams.get('messageId') ?? ''
+    const items = await runtime.database(account).thread({ subject, messageId })
     return { items: items.map((item) => localSummary(runtime, account, item)) }
   })
 

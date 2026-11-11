@@ -85,6 +85,13 @@ export function ensureMailSchema(file: string): void {
     if (!columns.some((column) => column.name === 'disposition')) {
       db.exec('ALTER TABLE attachments ADD COLUMN disposition TEXT')
     }
+    const emailColumns = db.prepare('PRAGMA table_info(emails)').all() as { name?: string }[]
+    if (!emailColumns.some((column) => column.name === 'in_reply_to')) {
+      db.exec('ALTER TABLE emails ADD COLUMN in_reply_to TEXT')
+    }
+    if (!emailColumns.some((column) => column.name === 'references')) {
+      db.exec('ALTER TABLE emails ADD COLUMN "references" TEXT')
+    }
   } finally {
     db.close()
   }
@@ -132,6 +139,7 @@ export class MailDatabase {
   private db: DatabaseSync | undefined
   private ftsChecked = false
   private ftsAvailable = false
+  private readonly threadRefs = new Map<number, { messageId: string; refs: string[] }>()
 
   constructor(file: string, options: MailDatabaseOptions = {}) {
     this.file = file
@@ -164,6 +172,15 @@ export class MailDatabase {
     }
   }
 
+  private hasRefColumns(): boolean {
+    try {
+      const columns = this.open().prepare('PRAGMA table_info(emails)').all() as { name?: string }[]
+      return columns.some((column) => column.name === 'in_reply_to')
+    } catch {
+      return false
+    }
+  }
+
   private attachmentCountSql(): string {
     if (!this.hasAttachmentColumns()) {
       return '(SELECT COUNT(*) FROM attachments a WHERE a.email_id = e.id) AS attachment_count'
@@ -185,6 +202,7 @@ export class MailDatabase {
       // Closing an already-closed handle is harmless.
     }
     this.db = undefined
+    this.threadRefs.clear()
   }
 
   status(): { ok: boolean; database: string; total: number; error?: string } {
@@ -409,20 +427,224 @@ export class MailDatabase {
       .slice(0, limit)
   }
 
-  /** All archived messages in the same conversation (normalized subject). */
-  thread(subject: string, limit = 200): MessageSummary[] {
+  /**
+   * Conversation for one message.
+   *
+   * Subject grouping is only the candidate pool; inside it we read
+   * In-Reply-To/References from the stored raw message and keep the connected
+   * component of the seed. That stops unrelated mail with the same subject
+   * from being merged while still working for old backups.
+   */
+  thread(seed: { messageId?: string; subject: string }, limit = 200): MessageSummary[] {
     const normalize = (value: string): string =>
       value
         .replace(/^(\s*(re|fw|fwd|回复|转发)\s*[:：]\s*)+/gi, '')
         .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase()
-    const base = normalize(subject)
+    const base = normalize(seed.subject)
     if (base === '') return []
-    const page = this.list({ mailbox: 'all', query: base, limit: Math.min(500, limit * 2) })
-    return page.items.filter((item) => normalize(item.subject) === base).slice(0, limit)
+    const seedIdForQuery = (seed.messageId ?? '').replace(/^<|>$/g, '').toLowerCase()
+    const candidates = this.threadCandidates(base, limit, seedIdForQuery)
+    if (candidates.length <= 1) return candidates
+
+    const refs = this.referencesFor(candidates.slice(0, 120).map((item) => Number(item.id)))
+    const byMessageId = new Map<string, number>()
+    for (const item of candidates) {
+      const id = item.messageId === undefined ? '' : item.messageId.replace(/^<|>$/g, '').toLowerCase()
+      if (id !== '') byMessageId.set(id, Number(item.id))
+    }
+    const seedId = (seed.messageId ?? '').replace(/^<|>$/g, '').toLowerCase()
+    const startId = byMessageId.has(seedId)
+      ? seedId
+      : (candidates[0]?.messageId ?? '').replace(/^<|>$/g, '').toLowerCase()
+    if (startId === '' || !byMessageId.has(startId)) return candidates
+
+    const neighbours = new Map<number, Set<number>>()
+    const link = (left: number, right: number): void => {
+      if (left === right) return
+      if (!neighbours.has(left)) neighbours.set(left, new Set())
+      if (!neighbours.has(right)) neighbours.set(right, new Set())
+      neighbours.get(left)?.add(right)
+      neighbours.get(right)?.add(left)
+    }
+    let edges = 0
+    for (const item of candidates) {
+      const local = refs.get(Number(item.id))
+      if (local === undefined || local.refs.length === 0) continue
+      for (const ref of local.refs) {
+        const target = byMessageId.get(ref)
+        if (target !== undefined) {
+          link(Number(item.id), target)
+          edges += 1
+        }
+      }
+    }
+    // Legacy backup with no usable headers: fall back to the subject group.
+    if (process.env.MAILHARBOR_DEBUG_THREAD === '1') {
+      console.error('THREAD', {
+        base,
+        candidates: candidates.length,
+        edges,
+        refs: [...refs.entries()].slice(0, 3),
+      })
+    }
+    if (edges === 0) return candidates
+
+    const seen = new Set<number>()
+    const queue = [byMessageId.get(startId)!]
+    while (queue.length > 0) {
+      const id = queue.shift() as number
+      if (seen.has(id)) continue
+      seen.add(id)
+      for (const next of neighbours.get(id) ?? []) {
+        if (!seen.has(next)) queue.push(next)
+      }
+    }
+    if (seen.size <= 1) return candidates
+    return candidates.filter((item) => seen.has(Number(item.id)))
   }
 
+  /** Subject candidates via a distinctive token, not FTS (punctuation-safe). */
+  private threadCandidates(base: string, limit: number, seedId = ''): MessageSummary[] {
+    const normalize = (value: string): string =>
+      value
+        .replace(/^(\s*(re|fw|fwd|回复|转发)\s*[:：]\s*)+/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
+    const words = base.split(/[^\p{L}\p{N}]+/u).filter((word) => word.length >= 3)
+    const token = words.sort((left, right) => right.length - left.length)[0] ?? base.slice(0, 8)
+    const pattern = `%${token.replace(/[%_]/g, '\\$&')}%`
+    try {
+      const rows = this.open()
+        .prepare(
+          `SELECT e.id, e.mailbox, e.uid, e.subject, e.from_name, e.from_addr, e.to_addr, e.cc,
+                  e.message_id, e.date, length(e.body_text) AS text_length,
+                  (SELECT COUNT(*) FROM attachments a WHERE a.email_id = e.id) AS attachment_count,
+                  substr(COALESCE(e.body_text, ''), 1, 240) AS snippet
+           FROM emails e WHERE lower(e.subject) LIKE ? ESCAPE '\\'
+           ORDER BY e.date DESC LIMIT ?`,
+        )
+        .all(pattern, 500) as Record<string, unknown>[]
+      const items = rows.map((row) => rowToSummary(row)).filter((item) => normalize(item.subject) === base)
+      if (seedId !== '' && this.hasRefColumns()) {
+        const linked = this.open()
+          .prepare(
+            `SELECT e.id, e.mailbox, e.uid, e.subject, e.from_name, e.from_addr, e.to_addr, e.cc,
+                    e.message_id, e.date, length(e.body_text) AS text_length,
+                    (SELECT COUNT(*) FROM attachments a WHERE a.email_id = e.id) AS attachment_count,
+                    substr(COALESCE(e.body_text, ''), 1, 240) AS snippet
+             FROM emails e
+             WHERE lower(e.in_reply_to) = ? OR lower(e."references") LIKE ? ESCAPE '\\'
+             ORDER BY e.date DESC LIMIT 100`,
+          )
+          .all(seedId, `%${seedId.replace(/[%_]/g, '\\$&')}%`) as Record<string, unknown>[]
+        const known = new Set(items.map((item) => item.id))
+        try {
+          const seedRow = this.open()
+            .prepare(
+              'SELECT in_reply_to, "references", raw_eml FROM emails WHERE lower(message_id) = ? LIMIT 1',
+            )
+            .get(seedId) as
+            | {
+                in_reply_to?: string | null
+                references?: string | null
+                raw_eml?: Uint8Array | null
+              }
+            | undefined
+          const parents = `${seedRow?.references ?? ''} ${seedRow?.in_reply_to ?? ''}`
+            .split(/\s+/)
+            .map((item) => item.replace(/^<|>$/g, '').toLowerCase())
+            .filter((item) => item.includes('@'))
+          if (parents.length === 0 && seedRow?.raw_eml !== undefined && seedRow.raw_eml !== null) {
+            for (const header of ['references', 'in-reply-to']) {
+              for (const found of headerIds(seedRow.raw_eml, header)) parents.push(found)
+            }
+          }
+          if (parents.length > 0) {
+            const marks = parents.map(() => '?').join(',')
+            const ancestors = this.open()
+              .prepare(
+                `SELECT e.id, e.mailbox, e.uid, e.subject, e.from_name, e.from_addr, e.to_addr, e.cc,
+                        e.message_id, e.date, length(e.body_text) AS text_length,
+                        (SELECT COUNT(*) FROM attachments a WHERE a.email_id = e.id) AS attachment_count,
+                        substr(COALESCE(e.body_text, ''), 1, 240) AS snippet
+                 FROM emails e WHERE lower(e.message_id) IN (${marks}) LIMIT 100`,
+              )
+              .all(...parents) as Record<string, unknown>[]
+            for (const row of ancestors) {
+              const item = rowToSummary(row)
+              if (!known.has(item.id)) {
+                items.push(item)
+                known.add(item.id)
+              }
+            }
+          }
+        } catch {
+          // Older backups may predate the reference columns.
+        }
+        for (const row of linked) {
+          const item = rowToSummary(row)
+          if (!known.has(item.id)) {
+            items.push(item)
+            known.add(item.id)
+          }
+        }
+      }
+      return items.slice(0, limit)
+    } catch {
+      return []
+    }
+  }
+
+  /** Read (and cache) In-Reply-To / References for a set of local ids. */
+  private referencesFor(ids: number[]): Map<number, { messageId: string; refs: string[] }> {
+    const missing = ids.filter((id) => !this.threadRefs.has(id))
+    if (missing.length > 0) {
+      const placeholders = missing.map(() => '?').join(',')
+      try {
+        const withRefs = this.hasRefColumns()
+        const columns = withRefs
+          ? 'id, message_id, raw_eml, in_reply_to, "references"'
+          : 'id, message_id, raw_eml'
+        const rows = this.open()
+          .prepare(`SELECT ${columns} FROM emails WHERE id IN (${placeholders})`)
+          .all(...missing) as {
+          id?: number
+          message_id?: string
+          raw_eml?: Uint8Array | null
+          in_reply_to?: string | null
+          references?: string | null
+        }[]
+        for (const row of rows) {
+          const id = Number(row.id)
+          const raw = row.raw_eml
+          const refs: string[] = []
+          for (const stored of [row.references ?? '', row.in_reply_to ?? '']) {
+            for (const found of String(stored).split(/\s+/)) {
+              const value = found.replace(/^<|>$/g, '').toLowerCase()
+              if (value.includes('@')) refs.push(value)
+            }
+          }
+          if (refs.length === 0 && raw !== undefined && raw !== null) {
+            for (const header of ['references', 'in-reply-to']) {
+              for (const found of headerIds(raw, header)) refs.push(found)
+            }
+          }
+          this.threadRefs.set(id, {
+            messageId: String(row.message_id ?? '')
+              .replace(/^<|>$/g, '')
+              .toLowerCase(),
+            refs: [...new Set(refs)],
+          })
+        }
+      } catch {
+        // Missing raw bodies simply leave the subject fallback in place.
+      }
+    }
+    return this.threadRefs
+  }
   /** Number of unread keys that still exist in this backup. */
   countUnread(keys: UnreadKeys): number {
     const mids = keys.mids.slice(0, 500)
@@ -655,6 +877,19 @@ function truncate(value: string, max: number): string {
 
 function quoteMatch(text: string): string {
   return `"${text.replaceAll('"', '""')}"`
+}
+
+function headerIds(raw: Uint8Array, header: string): string[] {
+  const text = Buffer.from(raw.subarray(0, Math.min(raw.byteLength, 200_000))).toString('utf8')
+  const separator = text.search(/\r?\n\r?\n/)
+  const head = separator >= 0 ? text.slice(0, separator) : text
+  const unfolded = head.replace(/\r?\n[ \t]+/g, ' ')
+  const match = new RegExp(`^${header}:\\s*(.*)$`, 'im').exec(unfolded)
+  if (match === null) return []
+  return String(match[1] ?? '')
+    .split(/\s+/)
+    .map((item) => item.replace(/^<|>$/g, '').toLowerCase())
+    .filter((item) => item.includes('@'))
 }
 
 function rowToSummary(row: Record<string, unknown>): MessageSummary {

@@ -1010,12 +1010,31 @@
 .mailharbor-selectbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  margin: 0 12px 8px;
-  border: 1px solid var(--m-accent-soft);
+  flex-wrap: wrap;
+  gap: 5px 6px;
+  padding: 8px 10px;
+  margin: 0 10px 8px;
+  border: 1px solid var(--m-accent);
   border-radius: 9px;
-  background: var(--m-accent-soft);
+  background: var(--m-bg-1);
+}
+
+.mailharbor-select-count {
+  flex: none;
+  white-space: nowrap;
+}
+
+.mailharbor-selectbar button {
+  padding: 0 8px;
+}
+
+.mailharbor-selectbar .spacer {
+  flex: 1 1 0;
+}
+
+.mailharbor-selectbar select {
+  flex: 1 1 110px;
+  min-width: 0;
 }
 
 .mailharbor-selectbar select {

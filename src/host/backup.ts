@@ -189,8 +189,8 @@ export class BackupEngine {
       .prepare(
         `INSERT OR IGNORE INTO emails
            (mailbox, uid, subject, from_name, from_addr, to_addr, cc, date, message_id,
-            body_text, body_html, raw_eml, hash, backup_log_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            in_reply_to, "references", body_text, body_html, raw_eml, hash, backup_log_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         mailbox,
@@ -202,6 +202,12 @@ export class BackupEngine {
         ccText,
         stamp(parsed.date ?? message.internalDate ?? message.envelope?.date),
         messageId === '' ? null : messageId,
+        normalizeId(parsed.inReplyTo ?? '') || null,
+        String(parsed.references ?? '')
+          .split(/\s+/)
+          .map(normalizeId)
+          .filter((item) => item !== '')
+          .join(' ') || null,
         text,
         html,
         source,

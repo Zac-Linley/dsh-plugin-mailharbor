@@ -123,9 +123,13 @@ export const api = {
       })}`,
     ),
 
-  thread: (accountId: string | null, subject: string) =>
+  thread: (accountId: string | null, subject: string, messageId?: string) =>
     request<{ items: MessageSummary[] }>(
-      `messages/thread${query({ accountId: accountId ?? null, subject })}`,
+      `messages/thread${query({
+        accountId: accountId ?? null,
+        subject,
+        ...(messageId === undefined ? {} : { messageId }),
+      })}`,
     ),
 
   contacts: (accountId: string | null, q = '') =>
