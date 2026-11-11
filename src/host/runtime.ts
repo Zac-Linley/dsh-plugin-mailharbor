@@ -5,7 +5,6 @@ import { CredentialManager } from './accounts.js'
 import { AiService } from './ai.js'
 import { AiThreadStore } from './ai-store.js'
 import { MailFlagsStore } from './mail-flags.js'
-import { refreshTokens, type OAuthApp, type OAuthTokenSet } from './oauth.js'
 import { ProjectStore } from './projects.js'
 import { TaskStore } from './tasks.js'
 import type { DshLlm, DshSessions, DshWorkspaceRegistry } from './dsh.js'
@@ -180,77 +179,14 @@ export class MailHarborRuntime {
     return accountRuntime(account)
   }
 
-  /** OAuth app configuration for one account's provider. */
-  oauthApp(account: Account): OAuthApp {
-    if (account.auth.type !== 'oauth2') throw new Error('这个账号不是 OAuth2 账号')
-    const provider = account.auth.provider
-    const settings = this.current.oauth
-    if (provider === 'google') {
-      if (settings.google.clientId === '') throw new Error('请先在设置里填写 Google OAuth Client ID')
-      return {
-        provider,
-        clientId: settings.google.clientId,
-        clientSecret: settings.google.clientSecret,
-        redirectPort: settings.google.redirectPort,
-        scopes: settings.google.scopes.length > 0 ? settings.google.scopes : ['https://mail.google.com/'],
-      }
-    }
-    if (settings.microsoft.clientId === '') throw new Error('请先在设置里填写 Microsoft OAuth Client ID')
-    return {
-      provider,
-      clientId: settings.microsoft.clientId,
-      clientSecret: '',
-      redirectPort: 0,
-      scopes:
-        settings.microsoft.scopes.length > 0
-          ? settings.microsoft.scopes
-          : [
-              'offline_access',
-              'https://outlook.office.com/IMAP.AccessAsUser.All',
-              'https://outlook.office.com/SMTP.Send',
-            ],
-    }
-  }
-
-  oauthTokens(account: Account): OAuthTokenSet | undefined {
-    return this.credentials.readOAuth(account)
-  }
-
-  saveOAuthTokens(account: Account, tokens: OAuthTokenSet): void {
-    this.credentials.writeOAuth(account, tokens)
-    this.invalidate(account.id)
-  }
-
-  /** Refresh when the access token is close to expiring; safe to call often. */
-  async refreshOAuth(account: Account): Promise<OAuthTokenSet | undefined> {
-    if (account.auth.type !== 'oauth2') return undefined
-    const tokens = this.credentials.readOAuth(account)
-    if (tokens === undefined) return undefined
-    if (tokens.expiresAt - Date.now() > 10 * 60_000) return tokens
-    const refreshed = await refreshTokens(this.oauthApp(account), tokens.refreshToken)
-    this.saveOAuthTokens(account, refreshed)
-    return refreshed
-  }
-
   /** Credentials for an account, with a clear message when the user must log in. */
   credentialsFor(account: Account): ImapCredentials {
-    if (account.auth.type === 'oauth2') {
-      const tokens = this.credentials.readOAuth(account)
-      if (tokens === undefined) throw new Error('请先完成 OAuth 授权')
-      if (tokens.expiresAt !== 0 && tokens.expiresAt <= Date.now()) {
-        throw new Error('OAuth 登录已过期，请重新授权')
-      }
-      return { user: account.username || account.email, accessToken: tokens.accessToken }
-    }
     const resolved = this.credentials.resolve(account)
     if (resolved === undefined) throw new Error('请先登录邮箱账号')
     return { user: account.username || account.email, pass: resolved.password }
   }
 
   hasCredentials(account: Account): boolean {
-    if (account.auth.type === 'oauth2') {
-      return this.credentials.readOAuth(account) !== undefined
-    }
     return this.credentials.resolve(account) !== undefined
   }
 

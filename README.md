@@ -15,28 +15,27 @@ and read state.
 - Package: `@zaclinley/dsh-mailharbor`
 - Requirements: **DSH `>=0.2.2-0 <0.3.0`**, Node **>=24.9** (the runtime bundled with DSH is fine)
 - License: MIT
-- Status: **v0.15.0 — local-first mail workspace with background IMAP sync, OAuth2, AI search, projects and a Kanban task board**.
+- Status: **v0.16.0 — local-first mail workspace with background IMAP sync, AI search, projects and a Kanban task board**.
 
 ## Features
 
 | Area        | What you get                                                                                                                                                  |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OAuth2       | Google loopback + PKCE and Microsoft device-code flows; tokens in the OS keychain, refreshed in the background (bring your own client ID) |
-| Accounts     | Any IMAP/SMTP mailbox; password, app password or OAuth2; per-account data directory; accounts and folders in the left column |
+| Accounts    | Any IMAP/SMTP mailbox with a password or app password; per-account data directory; accounts and folders in the left column                                    |
 | Local-first | Opens from the local SQLite backup instantly, then syncs new mail in the background; progress popover with start/stop                                         |
 | Browse      | Collapsible account/folder column, paging, subject conversations loaded across the whole backup, AI search over the local index                               |
 | Actions     | Star, archive, delete-to-trash, move to any folder; bulk read/unread/star/archive/delete                                                                      |
-| Reader       | Sandboxed HTML with a strict CSP, inline cid images as data URLs, remote images blocked, plain-text fallback, attachment download |
+| Reader      | Sandboxed HTML with a strict CSP, inline cid images as data URLs, remote images blocked, plain-text fallback, attachment download                             |
 | Compose     | Rich text, attachments, reply/reply-all/forward with `In-Reply-To` and `References`, contact autocomplete, per-account signatures, explicit send confirmation |
-| Drafts       | Local drafts mirrored to IMAP Drafts on save/close, cleaned up on discard and send |
+| Drafts      | Local drafts mirrored to IMAP Drafts on save/close, cleaned up on discard and send                                                                            |
 | AI          | Per-mail workspace: summary (brief/standard/detailed), reply, translation, Q&A, writing style; inline expansion; AI search; compose draft/polish/shorten      |
 | Projects    | Project folder (`BRIEF.md`, `CONVERSATION.md`) registered in DSH Workspaces; append AI records, add mails, open in Finder; delete folder/workspace when asked |
 | Tasks       | Kanban board (待处理 / 进行中 / 已完成 / 终止) with due/priority/owner/project, source-mail links and AI extraction                                           |
-| Credentials | macOS Keychain, libsecret, Windows Credential Locker; OAuth tokens stored separately and refreshed in the background; secrets never enter `config.json`       |
-| Migration   | Export/import a JSON profile: accounts without secrets, signature, reading settings and OAuth app config                                                      |
+| Credentials | macOS Keychain, libsecret, Windows Credential Locker; secrets never enter `config.json`                                                                       |
+| Migration   | Export/import a JSON profile: accounts without secrets, signature and reading settings                                                                        |
 | Agent tools | `mail_status`, `mail_list`, `mail_read`, `mail_search`, `mail_drafts`, `mail_draft`, `mail_backup`                                                            |
-| Migration    | Export/import a JSON profile: accounts without secrets, signature, reading settings and OAuth app config |
-| Settings     | DSH Settings → MailHarbor: accounts, OAuth app IDs, checks, signature, reading, list size, AI model and writing style, project root |
+| Settings    | DSH Settings → MailHarbor: accounts, servers, checks, signature, reading, list size, AI model and writing style, project root                                 |
+| Layout      | Responsive shell: the folder column becomes a drawer, list/reader switch to one pane, AI rail becomes an overlay, reader actions collapse behind 更多         |
 
 ## Screenshots
 
@@ -83,10 +82,8 @@ dsh plugin --profile desktop add link:$PWD
 
 ### Gmail, Outlook, and other providers
 
-- Gmail: use OAuth2 (add a Google OAuth client ID in Settings) or an **app password** with IMAP
-  enabled and 2-Step Verification.
-- Microsoft 365: use OAuth2 with your tenant's client ID; basic auth/app passwords only work if
-  the tenant still allows IMAP AUTH.
+- Gmail: enable IMAP and use an **app password** (2-Step Verification required).
+- Microsoft 365: app passwords only work while the tenant still allows IMAP AUTH.
 - Yahoo: app password. Self-hosted: any IMAP/SMTP endpoints with STARTTLS or implicit TLS.
 
 ## Migrating from `dsh-plugin-mail`
@@ -106,8 +103,8 @@ node node_modules/@zaclinley/dsh-mailharbor/scripts/migrate-legacy.mjs --copy
 ```
 
 It matches accounts by email, repoints `dataDir`, converts read-state keys and drafts to the new
-shapes, and copies the macOS Keychain password to the new service name. OAuth2 accounts are skipped
-until OAuth support ships. Restart DSH afterwards so the Host reopens the database.
+shapes, and copies the macOS Keychain password to the new service name.
+Restart DSH afterwards so the Host reopens the database.
 
 ## Data and privacy
 
@@ -179,17 +176,18 @@ must be able to publish `@zaclinley/*`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 
-| Version   | Scope                                                                           |
-| --------- | ------------------------------------------------------------------------------- |
-| **0.1.x** | Core mail workspace, backup, tools, settings, publishing pipeline               |
-| 0.2       | UI overhaul, migration from `dsh-plugin-mail`, installer polish                 |
-| 0.3       | Drafts, unified inbox, server paging, AI summary/reply/translate, writing style |
-| 0.4       | Persistent AI workspace, composer version stack                                 |
-| 0.5       | Projects from mail, task panel                                                  |
-| 0.6       | Mailbox sidebar, Kanban tasks, faster server browsing                           |
-| 0.7       | AI search, conversation grouping, folder picker, four-column task board         |
-| 0.8       | OAuth2 + XOAUTH2 (Gmail loopback/PKCE, Microsoft device code), token refresh    |
-| Later     | Reports, export/import, onboarding, richer attachments                          |
+| Version   | Scope                                                                               |
+| --------- | ----------------------------------------------------------------------------------- |
+| **0.1.x** | Core mail workspace, backup, tools, settings, publishing pipeline                   |
+| 0.2       | UI overhaul, migration from `dsh-plugin-mail`, installer polish                     |
+| 0.3       | Drafts, unified inbox, server paging, AI summary/reply/translate, writing style     |
+| 0.4       | Persistent AI workspace, composer version stack                                     |
+| 0.5       | Projects from mail, task panel                                                      |
+| 0.6       | Mailbox sidebar, Kanban tasks, faster server browsing                               |
+| 0.7       | AI search, conversation grouping, folder picker, four-column task board             |
+| 0.8–0.16  | Local-first sync, mail actions, drafts mirror, responsive layout, account migration |
+| Later     | OAuth2 is not planned for now (app passwords cover IMAP/SMTP)                       |
+| Later     | Reports, export/import, onboarding, richer attachments                              |
 
 ## Star history
 

@@ -30,11 +30,6 @@ export interface ProjectSettings {
   root: string
 }
 
-export interface OAuthSettings {
-  google: { clientId: string; clientSecret: string; redirectPort: number; scopes: string[] }
-  microsoft: { clientId: string; scopes: string[] }
-}
-
 /** The resolved configuration the rest of the Host reads. */
 export interface MailHarborConfig {
   dataDir: string
@@ -46,7 +41,6 @@ export interface MailHarborConfig {
   read: ReadSettings
   render: RenderSettings
   projects: ProjectSettings
-  oauth: OAuthSettings
   /** Bumped whenever the file is written; caches key off this value. */
   revision: number
 }
@@ -75,22 +69,6 @@ const DEFAULTS = {
   read: { markOnOpen: true, pollSeconds: 60 },
   render: { listLimit: 40 },
   projects: { root: join(homedir(), 'work', 'projects') },
-  oauth: {
-    google: {
-      clientId: '',
-      clientSecret: '',
-      redirectPort: 8765,
-      scopes: ['https://mail.google.com/'],
-    },
-    microsoft: {
-      clientId: '',
-      scopes: [
-        'offline_access',
-        'https://outlook.office.com/IMAP.AccessAsUser.All',
-        'https://outlook.office.com/SMTP.Send',
-      ],
-    },
-  },
 } satisfies Omit<MailHarborConfig, 'dataDir' | 'configFile' | 'accounts' | 'activeAccountId' | 'revision'>
 
 const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,64}$/
@@ -155,10 +133,7 @@ export function normalizeAccount(
     },
     keychainService: stringOr(input.keychainService, `dsh-mailharbor:${id}`),
     dataDir: stringOr(input.dataDir, `accounts/${id}`),
-    auth:
-      input.auth?.type === 'oauth2'
-        ? { type: 'oauth2', provider: input.auth.provider }
-        : { type: 'password' },
+    auth: { type: 'password' },
     caldav: normalizeCaldav(input.caldav),
     signature: stringOr(input.signature, '').slice(0, 5000),
     enabled: input.enabled !== false,
@@ -224,9 +199,6 @@ export function loadConfig(): MailHarborConfig {
   const readRaw = (file.read ?? {}) as Record<string, unknown>
   const renderRaw = (file.render ?? {}) as Record<string, unknown>
   const projectsRaw = (file.projects ?? {}) as Record<string, unknown>
-  const oauthRaw = (file.oauth ?? {}) as Record<string, unknown>
-  const googleRaw = (oauthRaw.google ?? {}) as Record<string, unknown>
-  const microsoftRaw = (oauthRaw.microsoft ?? {}) as Record<string, unknown>
   return {
     dataDir: DATA_ROOT,
     configFile: CONFIG_PATH,
@@ -254,22 +226,6 @@ export function loadConfig(): MailHarborConfig {
     projects: {
       root: stringOr(projectsRaw.root, DEFAULTS.projects.root),
     },
-    oauth: {
-      google: {
-        clientId: stringOr(googleRaw.clientId, DEFAULTS.oauth.google.clientId),
-        clientSecret: stringOr(googleRaw.clientSecret, DEFAULTS.oauth.google.clientSecret),
-        redirectPort: intOr(googleRaw.redirectPort, DEFAULTS.oauth.google.redirectPort, 1024, 65535),
-        scopes: Array.isArray(googleRaw.scopes)
-          ? googleRaw.scopes.filter((item): item is string => typeof item === 'string')
-          : DEFAULTS.oauth.google.scopes,
-      },
-      microsoft: {
-        clientId: stringOr(microsoftRaw.clientId, DEFAULTS.oauth.microsoft.clientId),
-        scopes: Array.isArray(microsoftRaw.scopes)
-          ? microsoftRaw.scopes.filter((item): item is string => typeof item === 'string')
-          : DEFAULTS.oauth.microsoft.scopes,
-      },
-    },
     revision: Date.now(),
   }
 }
@@ -294,7 +250,6 @@ export function saveSettings(patch: {
   ai?: Partial<AiSettings>
   read?: Partial<ReadSettings>
   render?: Partial<RenderSettings>
-  oauth?: OAuthSettings
 }): void {
   writeConfigFile(patch as Record<string, unknown>)
 }
@@ -320,7 +275,7 @@ export function buildAccount(input: NewAccountInput, existing: Account[]): Accou
       username: input.username,
       imap: input.imap as ImapSettings | undefined,
       smtp: input.smtp as SmtpSettings | undefined,
-      auth: input.auth ?? { type: 'password' },
+      auth: { type: 'password' },
       caldav: null,
       enabled: true,
       createdAt: new Date().toISOString(),

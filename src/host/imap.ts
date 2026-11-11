@@ -7,7 +7,6 @@ import { inlineCidImages } from './inline-images.js'
 export interface ImapCredentials {
   user: string
   pass?: string
-  accessToken?: string
 }
 
 export interface ImapMessage {
@@ -129,10 +128,7 @@ export class ImapProvider {
         host: this.settings.host,
         port: Number(this.settings.port),
         secure: this.settings.secure !== false,
-        auth:
-          this.credentials.accessToken !== undefined
-            ? { user: this.credentials.user, accessToken: this.credentials.accessToken }
-            : { user: this.credentials.user, pass: this.credentials.pass ?? '' },
+        auth: { user: this.credentials.user, pass: this.credentials.pass ?? '' },
         logger: false,
         tls: { rejectUnauthorized: true },
         connectionTimeout: this.options.connectionTimeoutMs ?? 15_000,

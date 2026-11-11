@@ -240,33 +240,6 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  oauthStatus: (accountId: string) =>
-    request<{
-      authorized: boolean
-      expiresAt: number | null
-      provider: string | null
-      appConfigured: boolean
-    }>(`oauth/status${query({ accountId })}`),
-
-  oauthStart: (accountId: string) =>
-    request<{
-      state: string
-      flow: 'google' | 'microsoft'
-      authUrl?: string
-      verificationUri?: string
-      userCode?: string
-      interval?: number
-    }>('oauth/start', { method: 'POST', body: JSON.stringify({ accountId }) }),
-
-  oauthPoll: (state: string) =>
-    request<{ status: 'pending' | 'ready' | 'error'; message?: string }>('oauth/poll', {
-      method: 'POST',
-      body: JSON.stringify({ state }),
-    }),
-
-  oauthRevoke: (accountId: string) =>
-    request<{ ok: true }>('oauth/revoke', { method: 'POST', body: JSON.stringify({ accountId }) }),
-
   check: (id: string) =>
     request<{
       ok: true

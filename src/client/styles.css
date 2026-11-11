@@ -271,7 +271,7 @@
 .mailharbor-list {
   display: flex;
   flex-direction: column;
-  width: 360px;
+  width: clamp(280px, 28vw, 360px);
   flex: none;
   border-right: 1px solid var(--m-line-soft);
   min-height: 0;
@@ -283,12 +283,6 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-@media (max-width: 1000px) {
-  .mailharbor-list {
-    width: 300px;
-  }
 }
 
 .mailharbor-narrow .mailharbor-body[data-mode='reader'] .mailharbor-list {
@@ -791,7 +785,7 @@
   padding: 0 2px;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1540px) {
   .mailharbor-ai {
     position: absolute;
     top: 0;
@@ -1626,12 +1620,6 @@
 
 .mailharbor-side-item.active svg {
   color: var(--m-accent);
-}
-
-@media (max-width: 900px) {
-  .mailharbor-side {
-    display: none;
-  }
 }
 
 /* ---------- task board ---------- */
@@ -2824,4 +2812,247 @@
   background: var(--m-accent-soft);
   color: var(--m-text);
   font-size: 11px;
+}
+
+/* ---------- responsive shell ---------- */
+
+.mailharbor-scrim,
+.mailharbor-ai-scrim {
+  display: none;
+}
+
+.mailharbor-account {
+  flex: 0 1 auto;
+}
+
+.mailharbor-account > div {
+  min-width: 0;
+}
+
+.mailharbor-account .small {
+  display: block;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailharbor-action-label {
+  display: inline;
+}
+
+@media (max-width: 1540px) {
+  .mailharbor-ai-scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    border: 0;
+    background: rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(1px);
+  }
+
+  .mailharbor-ai {
+    z-index: 6;
+  }
+}
+
+@media (max-width: 1220px) {
+  .mailharbor-scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    border: 0;
+    background: rgba(0, 0, 0, 0.38);
+  }
+
+  .mailharbor-side {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 30;
+    display: flex;
+    width: min(290px, 86%);
+    box-shadow: 20px 0 50px rgba(0, 0, 0, 0.45);
+    animation: mailharbor-drawer 160ms ease-out;
+  }
+
+  .mailharbor-list {
+    width: clamp(260px, 36vw, 320px);
+  }
+}
+
+@keyframes mailharbor-drawer {
+  from {
+    transform: translateX(-12px);
+    opacity: 0.4;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (max-width: 900px) {
+  .mailharbor-narrow .mailharbor-list {
+    width: 100%;
+    flex: 1;
+    min-width: 0;
+    border-right: 0;
+  }
+
+  .mailharbor-narrow .mailharbor-body[data-mode='reader'] .mailharbor-reader {
+    width: 100%;
+    flex: 1;
+  }
+
+  .mailharbor-reader-head {
+    padding: 12px 14px 10px;
+    gap: 8px;
+  }
+
+  .mailharbor-reader-title h2 {
+    font-size: 16px;
+  }
+
+  .mailharbor-reader-body {
+    padding: 10px 12px 12px;
+  }
+
+  .mailharbor-ai {
+    width: min(420px, 100%);
+  }
+}
+
+@media (max-width: 760px) {
+  .mailharbor-topbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 52px;
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .mailharbor-account {
+    max-width: 170px;
+  }
+
+  .mailharbor-account .small {
+    max-width: 105px;
+  }
+
+  .mailharbor-action-label {
+    display: none;
+  }
+
+  .mailharbor-topbar button.ghost,
+  .mailharbor-topbar button.primary {
+    padding: 0 9px;
+  }
+
+  .mailharbor-filters {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+
+  .mailharbor-filters input[type='search'] {
+    flex: 1 1 100%;
+    order: -1;
+  }
+
+  .mailharbor-settings-page {
+    padding: 16px 12px;
+  }
+
+  .mailharbor-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mailharbor-grid.three {
+    grid-template-columns: minmax(0, 1fr) minmax(64px, 80px) auto;
+  }
+
+  .mailharbor-sync-pop {
+    position: fixed;
+    top: 56px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .mailharbor-topbar {
+    gap: 4px;
+  }
+
+  .mailharbor-account {
+    max-width: 132px;
+  }
+
+  .mailharbor-account .small {
+    display: none;
+  }
+
+  .mailharbor-account .badge {
+    display: none;
+  }
+
+  .mailharbor-row {
+    padding: 9px 12px;
+  }
+
+  .mailharbor-row .snippet {
+    -webkit-line-clamp: 1;
+  }
+
+  .mailharbor-reader-actions {
+    gap: 4px;
+  }
+
+  .mailharbor-reader-actions button {
+    padding: 0 7px;
+  }
+}
+
+/* Reader actions collapse on phones: keep reply/forward, put the rest behind 更多. */
+.mailharbor .mailharbor-more-toggle {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .mailharbor-reader-actions .mailharbor-secondary {
+    display: none;
+  }
+
+  .mailharbor-reader-actions.expanded .mailharbor-secondary {
+    display: inline-flex;
+  }
+
+  .mailharbor-reader-actions .mailharbor-more-toggle {
+    display: inline-flex;
+  }
+
+  .mailharbor-reader-actions .mailharbor-divider.mailharbor-secondary {
+    display: none;
+  }
+}
+
+/* Subtle scrollbars keep long lists readable without stealing width. */
+.mailharbor ::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.mailharbor ::-webkit-scrollbar-thumb {
+  background: var(--m-line-strong);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.mailharbor ::-webkit-scrollbar-thumb:hover {
+  background: var(--m-text-3);
+  background-clip: padding-box;
 }

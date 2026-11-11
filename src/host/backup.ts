@@ -264,10 +264,7 @@ export class BackupEngine {
       host: this.runtime.imap.host,
       port: Number(this.runtime.imap.port),
       secure: this.runtime.imap.secure !== false,
-      auth:
-        this.credentials.accessToken !== undefined
-          ? { user: this.credentials.user, accessToken: this.credentials.accessToken }
-          : { user: this.credentials.user, pass: this.credentials.pass ?? '' },
+      auth: { user: this.credentials.user, pass: this.credentials.pass ?? '' },
       logger: false,
       tls: { rejectUnauthorized: true },
       connectionTimeout: 20_000,

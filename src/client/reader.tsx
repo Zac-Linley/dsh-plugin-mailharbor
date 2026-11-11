@@ -157,6 +157,7 @@ export function Reader({
   const [details, setDetails] = useState<Record<string, MessageDetail>>({})
   const [openId, setOpenId] = useState<string | null>(detail.id)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [moreActions, setMoreActions] = useState(false)
   const selectedCard = useRef<HTMLDivElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -286,7 +287,7 @@ export function Reader({
           ),
       h(
         'div',
-        { className: 'mailharbor-reader-actions' },
+        { className: moreActions ? 'mailharbor-reader-actions expanded' : 'mailharbor-reader-actions' },
         h(
           'button',
           { className: 'ghost', onClick: () => onReply('reply') },
@@ -305,12 +306,22 @@ export function Reader({
           h(Icon, { name: 'forward' }),
           '转发',
         ),
-        h('span', { className: 'mailharbor-divider' }),
+        h(
+          'button',
+          {
+            className: 'ghost mailharbor-more-toggle',
+            'aria-expanded': moreActions,
+            onClick: () => setMoreActions(!moreActions),
+          },
+          moreActions ? '收起' : '更多',
+          h(Icon, { name: moreActions ? 'chevronLeft' : 'chevronRight', size: 12 }),
+        ),
+        h('span', { className: 'mailharbor-divider mailharbor-secondary' }),
         onArchive === undefined
           ? null
           : h(
               'button',
-              { className: 'ghost', onClick: onArchive, title: '移到归档文件夹' },
+              { className: 'ghost mailharbor-secondary', onClick: onArchive, title: '移到归档文件夹' },
               h(Icon, { name: 'archive', size: 14 }),
               '归档',
             ),
@@ -318,7 +329,7 @@ export function Reader({
           ? null
           : h(
               'button',
-              { className: 'ghost', onClick: onDelete, title: '移到垃圾箱' },
+              { className: 'ghost mailharbor-secondary', onClick: onDelete, title: '移到垃圾箱' },
               h(Icon, { name: 'trash', size: 14 }),
               '删除',
             ),
@@ -327,6 +338,7 @@ export function Reader({
           : h(
               'select',
               {
+                className: 'mailharbor-secondary',
                 value: '',
                 'aria-label': '移动到文件夹',
                 title: '移动到文件夹',
@@ -338,24 +350,32 @@ export function Reader({
               h('option', { value: '' }, '移动到…'),
               folders.map((folder) => h('option', { key: folder.name, value: folder.name }, folder.label)),
             ),
-        h('span', { className: 'mailharbor-divider' }),
+        h('span', { className: 'mailharbor-divider mailharbor-secondary' }),
         h(
           'button',
-          { className: 'ghost', onClick: () => onAiAction('summary') },
+          { className: 'ghost mailharbor-secondary', onClick: () => onAiAction('summary') },
           h(Icon, { name: 'sparkles', size: 14 }),
           'AI 摘要',
         ),
-        h('button', { className: 'ghost', onClick: () => onAiAction('reply') }, 'AI 回复'),
-        h('button', { className: 'ghost', onClick: () => onAiAction('translate') }, 'AI 翻译'),
         h(
           'button',
-          { className: 'ghost', onClick: onExtractTasks },
+          { className: 'ghost mailharbor-secondary', onClick: () => onAiAction('reply') },
+          'AI 回复',
+        ),
+        h(
+          'button',
+          { className: 'ghost mailharbor-secondary', onClick: () => onAiAction('translate') },
+          'AI 翻译',
+        ),
+        h(
+          'button',
+          { className: 'ghost mailharbor-secondary', onClick: onExtractTasks },
           h(Icon, { name: 'checklist', size: 14 }),
           '提取任务',
         ),
         h(
           'button',
-          { className: 'ghost', onClick: onAddToProject },
+          { className: 'ghost mailharbor-secondary', onClick: onAddToProject },
           h(Icon, { name: 'folder', size: 14 }),
           '加入项目',
         ),

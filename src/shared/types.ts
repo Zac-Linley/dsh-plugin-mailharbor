@@ -36,13 +36,6 @@ export interface Address {
   address: string
 }
 
-export type OAuthProvider = 'google' | 'microsoft'
-
-export interface OAuthAccountAuth {
-  type: 'oauth2'
-  provider: OAuthProvider
-}
-
 export interface PasswordAccountAuth {
   type: 'password'
 }
@@ -65,7 +58,7 @@ export interface Account {
   keychainService: string
   /** Path relative to the data root, e.g. `accounts/acc_ab12`. */
   dataDir: string
-  auth: PasswordAccountAuth | OAuthAccountAuth
+  auth: PasswordAccountAuth
   caldav: CalDavSettings | null
   /** Optional per-account signature; falls back to the global one. */
   signature?: string
@@ -87,7 +80,7 @@ export interface NewAccountInput {
   smtp?: Partial<SmtpSettings>
   /** Keep the password in the OS credential store instead of this session only. */
   remember?: boolean
-  auth?: PasswordAccountAuth | OAuthAccountAuth
+  auth?: PasswordAccountAuth
 }
 
 export interface AttachmentMeta {
@@ -189,10 +182,6 @@ export type AiSummaryLength = 'brief' | 'normal' | 'detailed'
 
 export interface SettingsView {
   dataDir: string
-  oauth?: {
-    google: { clientId: string; clientSecret: string; redirectPort: number; scopes: string[] }
-    microsoft: { clientId: string; scopes: string[] }
-  }
   configFile: string
   signature: string
   accounts: Account[]

@@ -1,5 +1,4 @@
 import type { Account } from '../shared/types.js'
-import type { OAuthTokenSet } from './oauth.js'
 import { SecretStore } from './secrets.js'
 
 export type PasswordSource = 'session' | 'env' | 'keychain'
@@ -58,36 +57,6 @@ export class CredentialManager {
   forget(account: Account): void {
     this.session.delete(account.id)
     this.secrets.delete(account.keychainService, account.email)
-  }
-
-  private oauthService(account: Account): string {
-    return `${account.keychainService}:oauth`
-  }
-
-  readOAuth(account: Account): OAuthTokenSet | undefined {
-    const raw = this.secrets.read(this.oauthService(account), account.email)
-    if (raw === undefined || raw.trim() === '') return undefined
-    try {
-      const parsed = JSON.parse(raw) as Partial<OAuthTokenSet>
-      if (typeof parsed.accessToken !== 'string' || typeof parsed.refreshToken !== 'string') return undefined
-      return {
-        accessToken: parsed.accessToken,
-        refreshToken: parsed.refreshToken,
-        expiresAt: Number(parsed.expiresAt ?? 0),
-        ...(typeof parsed.scope === 'string' ? { scope: parsed.scope } : {}),
-        ...(typeof parsed.tokenType === 'string' ? { tokenType: parsed.tokenType } : {}),
-      }
-    } catch {
-      return undefined
-    }
-  }
-
-  writeOAuth(account: Account, tokens: OAuthTokenSet): boolean {
-    return this.secrets.write(this.oauthService(account), account.email, JSON.stringify(tokens))
-  }
-
-  forgetOAuth(account: Account): void {
-    this.secrets.delete(this.oauthService(account), account.email)
   }
 
   /** Read an arbitrary secret (for example a CalDAV app password). */

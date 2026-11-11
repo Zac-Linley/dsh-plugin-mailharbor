@@ -154,13 +154,15 @@ export function MailPanel(): ReactNode {
   const [selectMode, setSelectMode] = useState(false)
   const [sideOpen, setSideOpen] = useState(() => {
     try {
-      return window.localStorage.getItem('mailharbor.side') !== '0'
+      const wide = window.innerWidth > 1220
+      return wide && window.localStorage.getItem('mailharbor.side') !== '0'
     } catch {
       return true
     }
   })
   const [expandedGroups, setExpandedGroups] = useState<string[]>([])
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
+  const searchRef = useRef<HTMLInputElement | null>(null)
   const [projectOptions, setProjectOptions] = useState<Project[]>([])
   const [targetProject, setTargetProject] = useState('')
   const [extraction, setExtraction] = useState<{ items: TaskSuggestion[]; checked: boolean[] } | null>(null)
@@ -722,6 +724,28 @@ export function MailPanel(): ReactNode {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountScope, source, mailbox, search, limit, tick, unreadOnly])
 
+  // Keyboard: `/` focuses search, Escape peels back one layer.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable="true"]') !== null) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key === '/' && !event.shiftKey) {
+        event.preventDefault()
+        searchRef.current?.focus()
+        return
+      }
+      if (event.key !== 'Escape') return
+      if (document.querySelector('.mailharbor-modal') !== null) return
+      if (backupOpen) setBackupOpen(false)
+      else if (railOpen) setRailOpen(false)
+      else if (sideOpen) setSideOpen(false)
+      else if (selected !== null) setSelected(null)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [backupOpen, railOpen, sideOpen, selected])
+
   // Narrow layout follows the viewport.
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return
@@ -732,6 +756,25 @@ export function MailPanel(): ReactNode {
       media.removeEventListener('change', onChange)
     }
   }, [])
+
+  // Below 1024px the account/folder column becomes a drawer.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const media = window.matchMedia('(max-width: 1220px)')
+    const onChange = (): void => {
+      if (media.matches) setSideOpen(false)
+    }
+    media.addEventListener('change', onChange)
+    return () => {
+      media.removeEventListener('change', onChange)
+    }
+  }, [])
+
+  const closeDrawer = (): void => {
+    if (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 1220px)').matches) {
+      setSideOpen(false)
+    }
+  }
 
   // Backup state polling: the sync popover and the auto-sync loop share it.
   useEffect(() => {
@@ -1124,13 +1167,13 @@ export function MailPanel(): ReactNode {
           'div',
           { className: 'mailharbor-onboarding' },
           h('div', null, h('strong', null, '1'), '添加邮箱账号'),
-          h('div', null, h('strong', null, '2'), '登录（密码 / 应用专用密码 / OAuth2）'),
+          h('div', null, h('strong', null, '2'), '登录（密码 / 应用专用密码）'),
           h('div', null, h('strong', null, '3'), '自动同步后会立即出现在列表和 AI 助手里'),
         ),
         h(
           'p',
           { className: 'small muted' },
-          'Gmail / Microsoft 365 可直接用 OAuth2；其他邮箱用 IMAP 应用专用密码即可。',
+          'Gmail、Outlook、QQ、163 等请使用 IMAP 应用专用密码；邮箱服务器地址可在高级设置里改。',
         ),
         error === '' ? null : h('div', { className: 'small', style: { color: 'var(--m-danger)' } }, error),
         h(AddAccountForm, {
@@ -1367,7 +1410,7 @@ export function MailPanel(): ReactNode {
         'button',
         { className: 'ghost', onClick: openManager, title: '项目管理' },
         h(Icon, { name: 'folder' }),
-        '项目',
+        h('span', { className: 'mailharbor-action-label' }, '项目'),
       ),
       h(
         'button',
@@ -1377,13 +1420,13 @@ export function MailPanel(): ReactNode {
           title: 'AI 工作台',
         },
         h(Icon, { name: 'sparkles' }),
-        'AI',
+        h('span', { className: 'mailharbor-action-label' }, 'AI'),
       ),
       h(
         'button',
         { className: 'primary', onClick: () => startCompose('new') },
         h(Icon, { name: 'compose' }),
-        '写邮件',
+        h('span', { className: 'mailharbor-action-label' }, '写邮件'),
       ),
     ),
     toast === ''
@@ -1415,6 +1458,13 @@ export function MailPanel(): ReactNode {
           'div',
           { className: 'mailharbor-body', 'data-mode': narrow && selected !== null ? 'reader' : 'list' },
           sideOpen
+            ? h('button', {
+                className: 'mailharbor-scrim',
+                'aria-label': '关闭账号与文件夹',
+                onClick: () => setSideOpen(false),
+              })
+            : null,
+          sideOpen
             ? h(
                 'aside',
                 { className: 'mailharbor-side' },
@@ -1428,6 +1478,7 @@ export function MailPanel(): ReactNode {
                       onClick: () => {
                         void switchAccount(item.id)
                         setMailbox('INBOX')
+                        closeDrawer()
                       },
                     },
                     h(Avatar, { email: item.email, size: 18 }),
@@ -1454,6 +1505,7 @@ export function MailPanel(): ReactNode {
                       onClick: () => {
                         setMailbox(folder.name)
                         setSelected(null)
+                        closeDrawer()
                       },
                       onMouseEnter: () => prefetchFolder(folder.name),
                     },
@@ -1472,6 +1524,7 @@ export function MailPanel(): ReactNode {
               { className: 'mailharbor-filters' },
               h('input', {
                 type: 'search',
+                ref: searchRef,
                 placeholder: showingDrafts
                   ? '搜索草稿'
                   : aiSearching
@@ -1750,6 +1803,20 @@ export function MailPanel(): ReactNode {
                               : '换一个文件夹或稍后刷新。'
                             : '换个说法，或直接输入关键词后按回车。',
                         ),
+                        search !== '' || aiInfo !== null
+                          ? h(
+                              'button',
+                              {
+                                className: 'ghost small',
+                                onClick: () => {
+                                  setQuery('')
+                                  setSearch('')
+                                  setAiInfo(null)
+                                },
+                              },
+                              '清除搜索',
+                            )
+                          : null,
                       )
                     : selectMode
                       ? items.map((item) => renderMessage(item))
@@ -1853,6 +1920,13 @@ export function MailPanel(): ReactNode {
                     onMove: (target) => void moveCurrent(target, '已移动'),
                   }),
           ),
+          railOpen
+            ? h('button', {
+                className: 'mailharbor-ai-scrim',
+                'aria-label': '关闭 AI 助手',
+                onClick: () => setRailOpen(false),
+              })
+            : null,
           railOpen
             ? h(AiRail, {
                 account:

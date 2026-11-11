@@ -388,7 +388,7 @@ export function AiRail({
           ),
       h(
         'button',
-        { className: 'subtle icon', title: '收起', onClick: onClose },
+        { className: 'subtle icon', title: '收起', 'aria-label': '关闭 AI 助手', onClick: onClose },
         h(Icon, { name: 'chevronRight', size: 14 }),
       ),
     ),

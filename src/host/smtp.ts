@@ -5,7 +5,6 @@ import { addressOf, isEmail } from './address.js'
 export interface SmtpCredentials {
   user: string
   pass?: string
-  accessToken?: string
 }
 
 export interface SmtpSecurityOptions {
@@ -41,10 +40,7 @@ function transportOptions(
     secure,
     // Plain submission ports must upgrade; never send credentials in the clear.
     requireTLS: !secure,
-    auth:
-      credentials.accessToken !== undefined
-        ? { type: 'OAuth2' as const, user: credentials.user, accessToken: credentials.accessToken }
-        : { user: credentials.user, pass: credentials.pass ?? '' },
+    auth: { user: credentials.user, pass: credentials.pass ?? '' },
     tls: { rejectUnauthorized: security.allowSelfSigned !== true, servername: settings.host },
     connectionTimeout: 20_000,
     greetingTimeout: 20_000,
