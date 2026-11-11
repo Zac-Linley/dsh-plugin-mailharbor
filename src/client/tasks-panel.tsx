@@ -315,8 +315,19 @@ export function TasksPanel(): ReactNode {
         h(
           'div',
           { className: 'tasks-filters' },
-          FILTERS.map((item) =>
-            h(
+          FILTERS.map((item) => {
+            const count =
+              item.id === 'today'
+                ? tasks.filter((task) => task.due.slice(0, 10) === dateKey(new Date())).length
+                : item.id === 'overdue'
+                  ? tasks.filter(
+                      (task) =>
+                        task.due !== '' &&
+                        task.due.slice(0, 10) < dateKey(new Date()) &&
+                        task.status !== 'COMPLETED',
+                    ).length
+                  : 0
+            return h(
               'button',
               {
                 key: item.id,
@@ -324,8 +335,9 @@ export function TasksPanel(): ReactNode {
                 onClick: () => setFilter(item.id),
               },
               item.label,
-            ),
-          ),
+              count > 0 ? h('span', { className: 'chip-count' }, String(count)) : null,
+            )
+          }),
         ),
         h('span', { className: 'spacer' }),
         h(

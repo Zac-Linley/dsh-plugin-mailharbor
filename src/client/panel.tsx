@@ -141,6 +141,36 @@ function highlight(text: string, query: string): ReactNode {
   ]
 }
 
+interface SavedSearch {
+  id: string
+  name: string
+  from: string
+  since: string
+  before: string
+  attachment: boolean
+  unread: boolean
+  query: string
+}
+
+function loadSavedSearches(): SavedSearch[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem('mailharbor.searches') ?? '[]')
+    return Array.isArray(parsed)
+      ? (parsed as SavedSearch[]).filter((item) => typeof item?.id === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+function persistSavedSearches(items: SavedSearch[]): void {
+  try {
+    window.localStorage.setItem('mailharbor.searches', JSON.stringify(items))
+  } catch {
+    // Private mode simply keeps them for this render.
+  }
+}
+
 export function MailPanel(): ReactNode {
   const [state, setState] = useState<AppState | null>(null)
   const [error, setError] = useState('')
@@ -206,6 +236,7 @@ export function MailPanel(): ReactNode {
   const [sinceFilter, setSinceFilter] = useState('')
   const [beforeFilter, setBeforeFilter] = useState('')
   const [attachmentOnly, setAttachmentOnly] = useState(false)
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>(() => loadSavedSearches())
   const [unreadTotal, setUnreadTotal] = useState(0)
   const [threadItems, setThreadItems] = useState<MessageSummary[]>([])
   const [aiElapsed, setAiElapsed] = useState(0)
@@ -1688,6 +1719,84 @@ export function MailPanel(): ReactNode {
                       ),
                       h(
                         'div',
+                        { className: 'mailharbor-saved' },
+                        h(
+                          'button',
+                          {
+                            className: 'subtle small',
+                            onClick: () => {
+                              const name =
+                                fromFilter.trim() !== ''
+                                  ? fromFilter.trim()
+                                  : search.trim() !== ''
+                                    ? search.trim()
+                                    : sinceFilter !== '' || beforeFilter !== '' || attachmentOnly
+                                      ? '筛选条件'
+                                      : `未读`
+                              const next: SavedSearch[] = [
+                                ...savedSearches,
+                                {
+                                  id: crypto.randomUUID(),
+                                  name,
+                                  from: fromFilter,
+                                  since: sinceFilter,
+                                  before: beforeFilter,
+                                  attachment: attachmentOnly,
+                                  unread: unreadOnly,
+                                  query: search,
+                                },
+                              ].slice(-8)
+                              setSavedSearches(next)
+                              persistSavedSearches(next)
+                            },
+                          },
+                          '保存当前条件',
+                        ),
+                        savedSearches.length === 0
+                          ? null
+                          : h(
+                              'div',
+                              { className: 'mailharbor-saved-list' },
+                              savedSearches.map((item) =>
+                                h(
+                                  'span',
+                                  { key: item.id, className: 'mailharbor-saved-chip' },
+                                  h(
+                                    'button',
+                                    {
+                                      className: 'subtle small',
+                                      onClick: () => {
+                                        setFromFilter(item.from)
+                                        setSinceFilter(item.since)
+                                        setBeforeFilter(item.before)
+                                        setAttachmentOnly(item.attachment)
+                                        setUnreadOnly(item.unread)
+                                        setSearch(item.query)
+                                        setQuery(item.query)
+                                        setFilterOpen(false)
+                                      },
+                                    },
+                                    item.name,
+                                  ),
+                                  h(
+                                    'button',
+                                    {
+                                      className: 'subtle small',
+                                      'aria-label': `删除搜索 ${item.name}`,
+                                      onClick: () => {
+                                        const next = savedSearches.filter((entry) => entry.id !== item.id)
+                                        setSavedSearches(next)
+                                        persistSavedSearches(next)
+                                      },
+                                    },
+                                    '×',
+                                  ),
+                                ),
+                              ),
+                            ),
+                      ),
+                      h(
+                        'div',
                         { className: 'mailharbor-filter-actions' },
                         h(
                           'button',
@@ -2148,6 +2257,26 @@ export function MailPanel(): ReactNode {
                     h(
                       'div',
                       { className: 'project-manager-main' },
+                      typeof project.taskTotal === 'number' && project.taskTotal > 0
+                        ? h(
+                            'div',
+                            { className: 'project-progress' },
+                            h(
+                              'span',
+                              { className: 'project-progress-bar' },
+                              h('span', {
+                                style: {
+                                  width: `${String(Math.round(((project.taskDone ?? 0) / project.taskTotal) * 100))}%`,
+                                },
+                              }),
+                            ),
+                            h(
+                              'span',
+                              { className: 'small muted' },
+                              `任务 ${String(project.taskDone ?? 0)}/${String(project.taskTotal)}`,
+                            ),
+                          )
+                        : null,
                       managerRename?.id === project.id
                         ? h('input', {
                             value: managerRename.name,

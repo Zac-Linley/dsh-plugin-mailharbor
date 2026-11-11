@@ -295,6 +295,9 @@ export interface Project {
   threads: { accountId: string; key: string }[]
   createdAt: string
   updatedAt: string
+  /** Task rollup shown in the project list. */
+  taskTotal?: number
+  taskDone?: number
 }
 
 export interface TaskSuggestion {

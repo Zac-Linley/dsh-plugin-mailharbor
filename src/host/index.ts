@@ -71,6 +71,7 @@ export function apply(ctx: DshContext): void {
   const disposers: (() => void)[] = []
   if (activeAccount !== undefined) {
     setTimeout(() => runtime.startReferencesBackfill(activeAccount), 3000)
+    setTimeout(() => void runtime.flushActions(activeAccount).catch(() => undefined), 6000)
   }
 
   const start = (): void => {

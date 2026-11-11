@@ -437,6 +437,12 @@ export const api = {
 
   projects: () => request<{ items: Project[] }>('projects'),
 
+  saveAttachmentToProject: (projectId: string, accountId: string, emailId: string, attachmentId: string) =>
+    request<{ ok: true; path: string; filename: string }>(
+      `projects/${encodeURIComponent(projectId)}/attachment`,
+      { method: 'POST', body: JSON.stringify({ accountId, emailId, attachmentId }) },
+    ),
+
   pickDirectory: () => request<{ path: string | null }>('projects/pick-directory', { method: 'POST' }),
 
   updateProject: (id: string, name: string) =>

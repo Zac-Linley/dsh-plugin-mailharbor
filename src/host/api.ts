@@ -27,7 +27,8 @@ import {
 } from './config.js'
 import { resolveUserPath } from './paths.js'
 import { openPath, pickDirectory } from './picker.js'
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { moveLocalMessage } from './mail-write.js'
 import { draftMime } from './draft-mime.js'
 import { optimizeDatabase } from './references.js'
@@ -199,7 +200,13 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       try {
         await runtime.provider(account).setFlag(detail.mailbox, detail.uid, '\\Flagged', starred)
       } catch {
-        // Local-first: the star still shows even when the server is offline.
+        runtime.actionQueue(account).enqueue({
+          type: 'flag',
+          mailbox: detail.mailbox,
+          uid: detail.uid,
+          flag: '\\Flagged',
+          value: starred,
+        })
       }
     }
     return { starred }
@@ -216,7 +223,12 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       try {
         await runtime.provider(account).move(detail.mailbox, detail.uid, target)
       } catch {
-        // Keep the local move: archived mail may no longer exist on the server.
+        runtime.actionQueue(account).enqueue({
+          type: 'move',
+          mailbox: detail.mailbox,
+          uid: detail.uid,
+          target,
+        })
       }
     }
     moveLocalMessage(runtime.paths(account).mailDb, Number(params.id), target)
@@ -243,7 +255,13 @@ function buildRouter(runtime: MailHarborRuntime): Router {
           try {
             await runtime.provider(account).setSeen(detail.mailbox, detail.uid, action === 'read')
           } catch {
-            // Keep the local state.
+            runtime.actionQueue(account).enqueue({
+              type: 'flag',
+              mailbox: detail.mailbox,
+              uid: detail.uid,
+              flag: '\\Seen',
+              value: action === 'read',
+            })
           }
         }
         count += 1
@@ -254,7 +272,12 @@ function buildRouter(runtime: MailHarborRuntime): Router {
           try {
             await runtime.provider(account).move(detail.mailbox, detail.uid, target)
           } catch {
-            // Archived mail may no longer exist on the server.
+            runtime.actionQueue(account).enqueue({
+              type: 'move',
+              mailbox: detail.mailbox,
+              uid: detail.uid,
+              target,
+            })
           }
         }
         moveLocalMessage(runtime.paths(account).mailDb, Number(detail.id), target)
@@ -266,7 +289,13 @@ function buildRouter(runtime: MailHarborRuntime): Router {
           try {
             await runtime.provider(account).setFlag(detail.mailbox, detail.uid, '\\Flagged', starred)
           } catch {
-            // Local only.
+            runtime.actionQueue(account).enqueue({
+              type: 'flag',
+              mailbox: detail.mailbox,
+              uid: detail.uid,
+              flag: '\\Flagged',
+              value: starred,
+            })
           }
         }
         count += 1
@@ -980,7 +1009,53 @@ function buildRouter(runtime: MailHarborRuntime): Router {
 
   // ---- projects ----
 
-  router.get('/projects', () => ({ items: runtime.projects().list().map(projectView) }))
+  router.post('/projects/:id/attachment', async ({ params, body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const project = runtime.projects().get(String(params.id ?? ''))
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    const emailId = Number(payload.emailId ?? 0)
+    const attachmentId = Number(payload.attachmentId ?? 0)
+    const file = runtime.database(account).attachment(emailId, attachmentId)
+    if (file === undefined) throw new HttpError(404, '附件不存在')
+    const dir = join(project.path, 'attachments')
+    mkdirSync(dir, { recursive: true })
+    const safe = basename(file.filename).replace(/[/\\:*?"<>|]/g, '_') || 'attachment'
+    let target = join(dir, safe)
+    let index = 1
+    while (existsSync(target)) {
+      const dot = safe.lastIndexOf('.')
+      const stem = dot > 0 ? safe.slice(0, dot) : safe
+      const ext = dot > 0 ? safe.slice(dot) : ''
+      target = join(dir, `${stem}-${String(index)}${ext}`)
+      index += 1
+    }
+    writeFileSync(target, Buffer.from(file.data))
+    return { ok: true, path: target, filename: basename(target) }
+  })
+
+  router.get('/projects', () => {
+    const counts = new Map<string, { total: number; done: number }>()
+    for (const account of runtime.current.accounts) {
+      for (const task of runtime.tasks().list({ accountId: account.id })) {
+        const projectId = task.projectId ?? ''
+        if (projectId === '') continue
+        const entry = counts.get(projectId) ?? { total: 0, done: 0 }
+        entry.total += 1
+        if (task.status === 'COMPLETED') entry.done += 1
+        counts.set(projectId, entry)
+      }
+    }
+    return {
+      items: runtime
+        .projects()
+        .list()
+        .map((project) => {
+          const stat = counts.get(project.id)
+          return { ...projectView(project), taskTotal: stat?.total ?? 0, taskDone: stat?.done ?? 0 }
+        }),
+    }
+  })
 
   router.get('/projects/for', ({ url }) => {
     const account = accountFromPayload(runtime, { accountId: url.searchParams.get('accountId') ?? undefined })

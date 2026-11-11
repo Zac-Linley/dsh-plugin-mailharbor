@@ -6,6 +6,7 @@ import { AiService } from './ai.js'
 import { AiThreadStore } from './ai-store.js'
 import { MailFlagsStore } from './mail-flags.js'
 import { backfillReferences, backfillSubjects } from './references.js'
+import { ActionQueueStore } from './action-queue.js'
 import { ProjectStore } from './projects.js'
 import { TaskStore } from './tasks.js'
 import type { DshLlm, DshSessions, DshWorkspaceRegistry } from './dsh.js'
@@ -60,6 +61,7 @@ export class MailHarborRuntime {
   private projectStore: ProjectStore | null = null
   private taskStore: TaskStore | null = null
   private readonly flagStores = new Map<string, { signature: string; value: MailFlagsStore }>()
+  private readonly actionQueues = new Map<string, { signature: string; value: ActionQueueStore }>()
   private readonly referenceJobs = new Map<
     string,
     { running: boolean; indexed: number; remaining: number | null; error: string | null }
@@ -182,6 +184,24 @@ export class MailHarborRuntime {
 
   paths(account: Account): AccountRuntime {
     return accountRuntime(account)
+  }
+
+  actionQueue(account: Account): ActionQueueStore {
+    const file = join(this.paths(account).root, 'actions-queue.json')
+    const existing = this.actionQueues.get(account.id)
+    if (existing !== undefined && existing.signature === file) return existing.value
+    const created = new ActionQueueStore(file)
+    this.actionQueues.set(account.id, { signature: file, value: created })
+    return created
+  }
+
+  async flushActions(account: Account): Promise<{ sent: number; failed: number }> {
+    if (!this.hasCredentials(account)) return { sent: 0, failed: 0 }
+    try {
+      return await this.actionQueue(account).flushTo(this.provider(account))
+    } catch {
+      return { sent: 0, failed: 0 }
+    }
   }
 
   referencesStatus(account: Account): {
@@ -379,6 +399,7 @@ export class MailHarborRuntime {
         if (status.exitCode === 0) status.lastSuccessAt = status.finishedAt
         this.databases.get(account.id)?.value.close()
         this.databases.delete(account.id)
+        if (status.exitCode === 0) void this.flushActions(account).catch(() => undefined)
       }
     })()
     this.backups.set(account.id, job)

@@ -112,6 +112,22 @@ function AttachmentChips({
 }): ReactNode {
   const [expanded, setExpanded] = useState(false)
   const [preview, setPreview] = useState<AttachmentMeta | null>(null)
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
+  const [projectId, setProjectId] = useState('')
+  const [saveState, setSaveState] = useState('')
+  useEffect(() => {
+    if (preview === null || source !== 'local' || projects.length > 0) return
+    let cancelled = false
+    api
+      .projects()
+      .then((result) => {
+        if (!cancelled) setProjects(result.items.map((item) => ({ id: item.id, name: item.name })))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [preview, source, projects.length])
   if (detail.attachments.length === 0) return null
   const shown = expanded ? detail.attachments : detail.attachments.slice(0, 3)
   const hidden = detail.attachments.length - shown.length
@@ -194,6 +210,37 @@ function AttachmentChips({
                 `${preview.contentType} · ${formatBytes(preview.size)}`,
               ),
               h('span', { className: 'spacer' }),
+              saveState === '' ? null : h('span', { className: 'small muted' }, saveState),
+              source === 'local' && projects.length > 0
+                ? h(
+                    'select',
+                    {
+                      value: projectId,
+                      'aria-label': '保存到项目',
+                      onChange: (event: { target: { value: string } }) => setProjectId(event.target.value),
+                    },
+                    h('option', { value: '' }, '保存到项目…'),
+                    projects.map((project) =>
+                      h('option', { key: project.id, value: project.id }, project.name),
+                    ),
+                  )
+                : null,
+              source === 'local' && projects.length > 0
+                ? h(
+                    'button',
+                    {
+                      className: 'ghost small',
+                      disabled: projectId === '',
+                      onClick: () => {
+                        void api
+                          .saveAttachmentToProject(projectId, detail.accountId, detail.id, preview.id)
+                          .then((result) => setSaveState(`已保存 ${result.filename}`))
+                          .catch(() => setSaveState('保存失败'))
+                      },
+                    },
+                    '保存',
+                  )
+                : null,
               h(
                 'a',
                 {
