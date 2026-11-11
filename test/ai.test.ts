@@ -34,7 +34,7 @@ function config(overrides: Partial<MailHarborConfig['ai']> = {}): MailHarborConf
     render: { listLimit: 40 },
     projects: { root: '/tmp/projects' },
     oauth: {
-      google: { clientId: '', redirectPort: 8765, scopes: [] },
+      google: { clientId: '', clientSecret: '', redirectPort: 8765, scopes: [] },
       microsoft: { clientId: '', scopes: [] },
     },
     revision: 1,

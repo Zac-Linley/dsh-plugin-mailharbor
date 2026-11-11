@@ -30,6 +30,10 @@ import { openPath, pickDirectory } from './picker.js'
 import { existsSync, rmSync } from 'node:fs'
 import { moveLocalMessage } from './mail-write.js'
 import { draftMime } from './draft-mime.js'
+import { createHash, randomBytes } from 'node:crypto'
+import { createServer } from 'node:http'
+import { exchangeGoogleCode, googleAuthUrl, pollDeviceFlow, startDeviceFlow } from './oauth.js'
+import { openExternal } from './picker.js'
 import { BackupEngine } from './backup.js'
 import { HttpError, Router, assertTrusted, readJsonBody, sendJson, type RequestContext } from './http.js'
 import { normalizeTranslated, summaryBlocks, textToHtml } from './ai.js'
@@ -81,6 +85,18 @@ export function createApiHandler(runtime: MailHarborRuntime) {
     }
   }
 }
+
+interface PendingOAuth {
+  accountId: string
+  provider: 'google' | 'microsoft'
+  status: 'pending' | 'ready' | 'error'
+  message?: string
+  deviceCode?: string
+  interval?: number
+  expiresAt: number
+}
+
+const pendingOAuth = new Map<string, PendingOAuth>()
 
 function buildRouter(runtime: MailHarborRuntime): Router {
   const router = new Router()
@@ -266,6 +282,242 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     return { ok: true, count }
   })
 
+  router.get('/transfer/export', () => {
+    const config = runtime.current
+    return {
+      format: 'mailharbor-transfer',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      settings: {
+        signature: config.signature,
+        read: config.read,
+        render: config.render,
+        ai: {
+          enabled: config.ai.enabled,
+          provider: config.ai.provider,
+          model: config.ai.model,
+          summaryLength: config.ai.summaryLength,
+        },
+        oauth: {
+          google: {
+            clientId: config.oauth.google.clientId,
+            redirectPort: config.oauth.google.redirectPort,
+          },
+          microsoft: { clientId: config.oauth.microsoft.clientId },
+        },
+      },
+      accounts: config.accounts.map((account) => ({
+        email: account.email,
+        label: account.label,
+        username: account.username,
+        imap: account.imap,
+        smtp: account.smtp,
+        auth: account.auth,
+        enabled: account.enabled,
+      })),
+    }
+  })
+
+  router.post('/transfer/import', async ({ body }) => {
+    const payload = await body()
+    if (payload.format !== 'mailharbor-transfer' || !Array.isArray(payload.accounts)) {
+      throw new HttpError(400, '不是有效的 MailHarbor 配置文件')
+    }
+    const config = runtime.current
+    const accounts = [...config.accounts]
+    let added = 0
+    for (const raw of payload.accounts as Record<string, unknown>[]) {
+      const email = String(raw.email ?? '').trim()
+      if (email === '' || accounts.some((account) => account.email.toLowerCase() === email.toLowerCase()))
+        continue
+      try {
+        const account = normalizeAccount(
+          {
+            email,
+            label: typeof raw.label === 'string' ? raw.label : undefined,
+            username: typeof raw.username === 'string' ? raw.username : undefined,
+            imap: asObject(raw.imap) as unknown as Account['imap'],
+            smtp: asObject(raw.smtp) as unknown as Account['smtp'],
+            ...(raw.auth !== undefined ? { auth: raw.auth as Account['auth'] } : {}),
+          },
+          accounts.length,
+          accounts.map((account) => account.id),
+        )
+        accounts.push(account)
+        added += 1
+      } catch {
+        // Skip malformed entries; the rest still imports.
+      }
+    }
+    if (added > 0) saveAccounts(accounts, config.activeAccountId ?? accounts[0]?.id ?? null)
+    const settings = asObject(payload.settings)
+    const patch: Record<string, unknown> = {}
+    if (typeof settings.signature === 'string') patch.signature = settings.signature.slice(0, 5000)
+    const read = asObject(settings.read)
+    if (typeof read.markOnOpen === 'boolean') patch.read = { markOnOpen: read.markOnOpen }
+    const render = asObject(settings.render)
+    if (typeof render.listLimit === 'number') patch.render = { listLimit: render.listLimit }
+    const ai = asObject(settings.ai)
+    if (ai.summaryLength !== undefined) patch.ai = { summaryLength: ai.summaryLength }
+    if (Object.keys(patch).length > 0) saveSettings(patch)
+    const oauth = asObject(settings.oauth)
+    const google = asObject(oauth.google)
+    const microsoft = asObject(oauth.microsoft)
+    if (typeof google.clientId === 'string' || typeof microsoft.clientId === 'string') {
+      saveSettings({
+        oauth: {
+          google: {
+            clientId: typeof google.clientId === 'string' ? google.clientId : config.oauth.google.clientId,
+            clientSecret: config.oauth.google.clientSecret,
+            redirectPort:
+              typeof google.redirectPort === 'number'
+                ? google.redirectPort
+                : config.oauth.google.redirectPort,
+            scopes: config.oauth.google.scopes,
+          },
+          microsoft: {
+            clientId:
+              typeof microsoft.clientId === 'string' ? microsoft.clientId : config.oauth.microsoft.clientId,
+            scopes: config.oauth.microsoft.scopes,
+          },
+        },
+      })
+    }
+    runtime.refresh()
+    return { ok: true, addedAccounts: added, state: appState(runtime) }
+  })
+
+  router.get('/oauth/status', ({ url }) => {
+    const { account } = accountFrom(runtime, url)
+    const tokens = runtime.oauthTokens(account)
+    let appConfigured = false
+    try {
+      runtime.oauthApp(account)
+      appConfigured = true
+    } catch {
+      appConfigured = false
+    }
+    return {
+      authorized: tokens !== undefined,
+      expiresAt: tokens?.expiresAt ?? null,
+      provider: account.auth.type === 'oauth2' ? account.auth.provider : null,
+      appConfigured,
+    }
+  })
+
+  router.post('/oauth/start', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const app = runtime.oauthApp(account)
+    const state = randomBytes(16).toString('hex')
+    const expiresAt = Date.now() + 10 * 60_000
+    if (app.provider === 'microsoft') {
+      const device = await startDeviceFlow(app)
+      pendingOAuth.set(state, {
+        accountId: account.id,
+        provider: 'microsoft',
+        status: 'pending',
+        deviceCode: device.deviceCode,
+        interval: device.interval,
+        expiresAt,
+      })
+      return {
+        state,
+        flow: 'microsoft',
+        userCode: device.userCode,
+        verificationUri: device.verificationUri,
+        authUrl: device.verificationUri,
+        interval: device.interval,
+      }
+    }
+    const verifier = randomBytes(32).toString('base64url')
+    const challenge = createHash('sha256').update(verifier).digest('base64url')
+    const redirectUri = `http://127.0.0.1:${String(app.redirectPort)}/oauth/callback`
+    const authUrl = googleAuthUrl(app, state, challenge, redirectUri)
+    const entry: PendingOAuth = {
+      accountId: account.id,
+      provider: 'google',
+      status: 'pending',
+      expiresAt,
+    }
+    pendingOAuth.set(state, entry)
+    const server = createServer((request, response) => {
+      const target = new URL(request.url ?? '/', 'http://127.0.0.1')
+      if (target.pathname !== '/oauth/callback') {
+        response.writeHead(404).end()
+        return
+      }
+      const code = target.searchParams.get('code')
+      const error = target.searchParams.get('error')
+      void (async () => {
+        try {
+          if (error !== null) throw new Error(error)
+          if (code === null) throw new Error('缺少授权码')
+          const tokens = await exchangeGoogleCode(app, code, verifier, redirectUri)
+          runtime.saveOAuthTokens(account, tokens)
+          entry.status = 'ready'
+          response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+          response.end('<p>MailHarbor 授权成功，可以关闭此页面。</p>')
+        } catch (caught) {
+          entry.status = 'error'
+          entry.message = caught instanceof Error ? caught.message : String(caught)
+          response.writeHead(500, { 'content-type': 'text/html; charset=utf-8' })
+          response.end(`<p>授权失败：${entry.message}</p>`)
+        } finally {
+          setTimeout(() => {
+            server.close()
+          }, 500)
+        }
+      })()
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(app.redirectPort, '127.0.0.1', () => resolve())
+    })
+    setTimeout(() => {
+      server.close()
+      if (entry.status === 'pending') {
+        entry.status = 'error'
+        entry.message = '授权超时，请重试'
+      }
+    }, 10 * 60_000).unref()
+    await openExternal(authUrl).catch(() => undefined)
+    return { state, flow: 'google', authUrl, expiresAt }
+  })
+
+  router.post('/oauth/poll', async ({ body }) => {
+    const payload = await body()
+    const state = String(payload.state ?? '')
+    const entry = pendingOAuth.get(state)
+    if (entry === undefined) throw new HttpError(404, '授权会话不存在或已过期')
+    if (Date.now() > entry.expiresAt) {
+      entry.status = 'error'
+      entry.message = '授权超时，请重试'
+    }
+    if (entry.status !== 'pending') {
+      if (entry.status === 'ready') pendingOAuth.delete(state)
+      return { status: entry.status, message: entry.message }
+    }
+    if (entry.provider === 'microsoft' && entry.deviceCode !== undefined) {
+      const account = runtime.account(entry.accountId)
+      const result = await pollDeviceFlow(runtime.oauthApp(account), entry.deviceCode)
+      if (result.status === 'ready') {
+        runtime.saveOAuthTokens(account, result.tokens)
+        pendingOAuth.delete(state)
+        return { status: 'ready' }
+      }
+    }
+    return { status: 'pending' }
+  })
+
+  router.post('/oauth/revoke', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    runtime.credentials.forgetOAuth(account)
+    runtime.invalidate(account.id)
+    return { ok: true }
+  })
+
   router.get('/messages/thread', ({ url }) => {
     const { account } = accountFrom(runtime, url)
     const subject = url.searchParams.get('subject') ?? ''
@@ -422,9 +674,10 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     const password = typeof input.password === 'string' ? input.password : ''
     const config = runtime.current
     const account = buildAccount(input, config.accounts)
-    if (password === '') throw new HttpError(400, '请输入密码或应用专用密码')
+    const oauth = account.auth.type === 'oauth2'
+    if (!oauth && password === '') throw new HttpError(400, '请输入密码或应用专用密码')
 
-    if (input.connect !== false) {
+    if (!oauth && input.connect !== false) {
       const provider = await verifyImap(account, password)
       await provider.dispose()
       try {
@@ -433,7 +686,7 @@ function buildRouter(runtime: MailHarborRuntime): Router {
         // IMAP is the gate; SMTP problems are reported by the connection check.
       }
     }
-    runtime.credentials.remember(account, password, input.remember !== false)
+    if (!oauth) runtime.credentials.remember(account, password, input.remember !== false)
     const accounts = [...config.accounts, account]
     saveAccounts(accounts, account.id)
     runtime.refresh()
@@ -1035,6 +1288,35 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     if (payload.ai !== undefined) patch.ai = asObject(payload.ai)
     if (payload.read !== undefined) patch.read = asObject(payload.read)
     if (payload.render !== undefined) patch.render = asObject(payload.render)
+    if (payload.oauth !== undefined) {
+      const oauth = asObject(payload.oauth)
+      const google = asObject(oauth.google)
+      const microsoft = asObject(oauth.microsoft)
+      patch.oauth = {
+        google: {
+          clientId:
+            typeof google.clientId === 'string'
+              ? google.clientId.trim()
+              : runtime.current.oauth.google.clientId,
+          clientSecret:
+            typeof google.clientSecret === 'string'
+              ? google.clientSecret.trim()
+              : runtime.current.oauth.google.clientSecret,
+          redirectPort:
+            typeof google.redirectPort === 'number'
+              ? google.redirectPort
+              : runtime.current.oauth.google.redirectPort,
+          scopes: runtime.current.oauth.google.scopes,
+        },
+        microsoft: {
+          clientId:
+            typeof microsoft.clientId === 'string'
+              ? microsoft.clientId.trim()
+              : runtime.current.oauth.microsoft.clientId,
+          scopes: runtime.current.oauth.microsoft.scopes,
+        },
+      }
+    }
     if (payload.projects !== undefined) {
       const root = String(asObject(payload.projects).root ?? '').trim()
       if (root === '') throw new HttpError(400, '项目目录不能为空')
@@ -1216,6 +1498,7 @@ function settingsView(config: MailHarborConfig): SettingsView {
     read: { markOnOpen: config.read.markOnOpen, pollSeconds: config.read.pollSeconds },
     render: { listLimit: config.render.listLimit },
     projects: { root: config.projects.root },
+    oauth: config.oauth,
   }
 }
 

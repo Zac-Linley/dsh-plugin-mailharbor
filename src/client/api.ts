@@ -232,6 +232,41 @@ export const api = {
   logout: (id: string) =>
     request<{ ok: true }>(`accounts/${encodeURIComponent(id)}/logout`, { method: 'POST' }),
 
+  exportConfig: () => request<Record<string, unknown>>('transfer/export'),
+
+  importConfig: (payload: unknown) =>
+    request<{ ok: true; addedAccounts: number }>('transfer/import', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  oauthStatus: (accountId: string) =>
+    request<{
+      authorized: boolean
+      expiresAt: number | null
+      provider: string | null
+      appConfigured: boolean
+    }>(`oauth/status${query({ accountId })}`),
+
+  oauthStart: (accountId: string) =>
+    request<{
+      state: string
+      flow: 'google' | 'microsoft'
+      authUrl?: string
+      verificationUri?: string
+      userCode?: string
+      interval?: number
+    }>('oauth/start', { method: 'POST', body: JSON.stringify({ accountId }) }),
+
+  oauthPoll: (state: string) =>
+    request<{ status: 'pending' | 'ready' | 'error'; message?: string }>('oauth/poll', {
+      method: 'POST',
+      body: JSON.stringify({ state }),
+    }),
+
+  oauthRevoke: (accountId: string) =>
+    request<{ ok: true }>('oauth/revoke', { method: 'POST', body: JSON.stringify({ accountId }) }),
+
   check: (id: string) =>
     request<{
       ok: true

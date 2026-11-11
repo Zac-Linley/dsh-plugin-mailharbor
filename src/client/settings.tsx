@@ -31,6 +31,9 @@ export function MailSettings(): ReactNode {
   const [checkResults, setCheckResults] = useState<Record<string, string>>({})
   const [adding, setAdding] = useState(false)
   const [tick, setTick] = useState(0)
+  const [googleClientId, setGoogleClientId] = useState('')
+  const [googleClientSecret, setGoogleClientSecret] = useState('')
+  const [microsoftClientId, setMicrosoftClientId] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -48,6 +51,9 @@ export function MailSettings(): ReactNode {
         setAiProvider(view.ai.provider)
         setAiModel(view.ai.model)
         setAiSummaryLength(view.ai.summaryLength)
+        setGoogleClientId(view.oauth?.google.clientId ?? '')
+        setGoogleClientSecret(view.oauth?.google.clientSecret ?? '')
+        setMicrosoftClientId(view.oauth?.microsoft.clientId ?? '')
       })
       .catch((caught: unknown) => {
         if (!cancelled) setError(errorText(caught))
@@ -102,6 +108,33 @@ export function MailSettings(): ReactNode {
       const result = await api.saveSettings(patch)
       setSettings(result.settings)
       notify('设置已保存')
+    } catch (caught) {
+      setError(errorText(caught))
+    }
+  }
+
+  const exportConfig = async (): Promise<void> => {
+    try {
+      const data = await api.exportConfig()
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `mailharbor-config-${new Date().toISOString().slice(0, 10)}.json`
+      anchor.click()
+      URL.revokeObjectURL(url)
+      notify('配置已导出')
+    } catch (caught) {
+      setError(errorText(caught))
+    }
+  }
+
+  const importConfig = async (file: File): Promise<void> => {
+    try {
+      const parsed: unknown = JSON.parse(await file.text())
+      const result = await api.importConfig(parsed)
+      notify(`导入完成，新增 ${String(result.addedAccounts)} 个账号`)
+      reload()
     } catch (caught) {
       setError(errorText(caught))
     }
@@ -187,6 +220,101 @@ export function MailSettings(): ReactNode {
           : h('button', { className: 'ghost', onClick: () => setAdding(true) }, '+ 添加账号'),
       ),
 
+      h(
+        'div',
+        { className: 'mailharbor-card' },
+        h('h3', null, 'OAuth2 应用（Gmail / Microsoft 365）'),
+        h(
+          'p',
+          { className: 'small muted' },
+          '在 Google Cloud Console 创建「桌面应用」OAuth 客户端，或在 Azure 注册应用并允许公共客户端设备代码流；把 Client ID 填到这里。',
+        ),
+        h(
+          'div',
+          { className: 'mailharbor-grid' },
+          h(
+            Field,
+            { label: 'Google Client ID' },
+            h('input', {
+              value: googleClientId,
+              placeholder: 'xxxx.apps.googleusercontent.com',
+              onChange: (event: { target: { value: string } }) => setGoogleClientId(event.target.value),
+            }),
+          ),
+          h(
+            Field,
+            { label: 'Google Client Secret' },
+            h('input', {
+              type: 'password',
+              value: googleClientSecret,
+              onChange: (event: { target: { value: string } }) => setGoogleClientSecret(event.target.value),
+            }),
+          ),
+        ),
+        h(
+          Field,
+          { label: 'Microsoft Client ID' },
+          h('input', {
+            value: microsoftClientId,
+            onChange: (event: { target: { value: string } }) => setMicrosoftClientId(event.target.value),
+          }),
+        ),
+        h(
+          'button',
+          {
+            className: 'ghost',
+            onClick: () =>
+              void saveGeneral({
+                oauth: {
+                  google: {
+                    clientId: googleClientId.trim(),
+                    clientSecret: googleClientSecret.trim(),
+                    redirectPort: settings?.oauth?.google.redirectPort ?? 8765,
+                  },
+                  microsoft: { clientId: microsoftClientId.trim() },
+                },
+              }),
+          },
+          '保存 OAuth 应用',
+        ),
+      ),
+      h(
+        'div',
+        { className: 'mailharbor-card' },
+        h('h3', null, '备份与迁移'),
+        h(
+          'p',
+          { className: 'small muted' },
+          '导出账号（不含密码和 OAuth 令牌）、签名、阅读与 OAuth 应用配置；导入时按邮箱去重。',
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+          h('button', { className: 'ghost', onClick: () => void exportConfig() }, '导出配置'),
+          h(
+            'label',
+            { className: 'ghost', style: { cursor: 'pointer' } },
+            '导入配置',
+            h('input', {
+              type: 'file',
+              accept: 'application/json,.json',
+              style: { display: 'none' },
+              onChange: (event: { target: { files?: FileList | null; value: string } }) => {
+                const file = event.target.files?.[0]
+                if (file !== undefined) void importConfig(file)
+                event.target.value = ''
+              },
+            }),
+          ),
+        ),
+      ),
+      state.activeAccountId !== null &&
+        settings.accounts.find((item) => item.id === state.activeAccountId)?.auth.type === 'oauth2'
+        ? h(OAuthCard, {
+            account: settings.accounts.find((item) => item.id === state.activeAccountId)!,
+            onChanged: reload,
+          })
+        : null,
       h(
         'div',
         { className: 'mailharbor-card' },
@@ -759,5 +887,128 @@ function AccountRow({
           ),
         )
       : null,
+  )
+}
+
+function OAuthCard({ account, onChanged }: { account: Account; onChanged: () => void }): ReactNode {
+  const [status, setStatus] = useState<{
+    authorized: boolean
+    expiresAt: number | null
+    appConfigured: boolean
+  } | null>(null)
+  const [flow, setFlow] = useState<{
+    state: string
+    flow: 'google' | 'microsoft'
+    userCode?: string
+    verificationUri?: string
+    authUrl?: string
+  } | null>(null)
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .oauthStatus(account.id)
+      .then((result) => {
+        if (!cancelled) setStatus(result)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [account.id])
+
+  useEffect(() => {
+    if (flow === null) return
+    const timer = window.setInterval(() => {
+      void api
+        .oauthPoll(flow.state)
+        .then((result) => {
+          if (result.status === 'ready') {
+            setFlow(null)
+            setMessage('授权成功')
+            onChanged()
+          } else if (result.status === 'error') {
+            setFlow(null)
+            setMessage(result.message ?? '授权失败')
+          }
+        })
+        .catch((caught: unknown) => {
+          setFlow(null)
+          setMessage(errorText(caught))
+        })
+    }, 2500)
+    return () => window.clearInterval(timer)
+  }, [flow, onChanged])
+
+  const start = async (): Promise<void> => {
+    setBusy(true)
+    setMessage('')
+    try {
+      const result = await api.oauthStart(account.id)
+      setFlow(result)
+      if (result.flow === 'microsoft') setMessage('请在浏览器中输入下方代码完成登录')
+      else setMessage('已在浏览器打开授权页，完成后会自动更新')
+    } catch (caught) {
+      setMessage(errorText(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const revoke = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await api.oauthRevoke(account.id)
+      setStatus({ ...(status ?? { appConfigured: true, expiresAt: null }), authorized: false })
+      setMessage('已撤销授权')
+      onChanged()
+    } catch (caught) {
+      setMessage(errorText(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return h(
+    'div',
+    { className: 'mailharbor-card' },
+    h('h3', null, `OAuth 授权 · ${account.email}`),
+    h(
+      'p',
+      { className: 'small muted' },
+      status?.authorized === true
+        ? `已授权${status.expiresAt === null ? '' : `，访问令牌有效至 ${new Date(status.expiresAt).toLocaleString()}`}`
+        : status?.appConfigured === false
+          ? '尚未配置对应服务商的 Client ID'
+          : '未授权',
+    ),
+    flow?.userCode === undefined
+      ? null
+      : h(
+          'p',
+          null,
+          '代码：',
+          h('strong', null, flow.userCode),
+          flow.verificationUri === undefined ? null : h('span', null, ` · ${flow.verificationUri}`),
+        ),
+    message === '' ? null : h('p', { className: 'small' }, message),
+    h(
+      'div',
+      { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+      h(
+        'button',
+        { className: 'primary small', disabled: busy || flow !== null, onClick: () => void start() },
+        status?.authorized === true ? '重新授权' : 'OAuth 授权',
+      ),
+      status?.authorized === true
+        ? h(
+            'button',
+            { className: 'ghost small danger', disabled: busy, onClick: () => void revoke() },
+            '撤销授权',
+          )
+        : null,
+    ),
   )
 }

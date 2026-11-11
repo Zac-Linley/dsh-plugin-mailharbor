@@ -69,6 +69,15 @@ export function apply(ctx: DshContext): void {
 
   const handler = createApiHandler(runtime)
   const disposers: (() => void)[] = []
+  const refreshOAuth = (): void => {
+    for (const account of runtime.current.accounts) {
+      if (account.auth.type !== 'oauth2' || !runtime.hasCredentials(account)) continue
+      void runtime.refreshOAuth(account).catch(() => undefined)
+    }
+  }
+  refreshOAuth()
+  const oauthTimer = setInterval(refreshOAuth, 15 * 60_000)
+  disposers.push(() => clearInterval(oauthTimer))
 
   const start = (): void => {
     disposers.push(ctx.webServer.register({ kind: 'prefix', path: ROUTE, handler }))

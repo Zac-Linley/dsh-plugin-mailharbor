@@ -1120,6 +1120,18 @@ export function MailPanel(): ReactNode {
           { className: 'muted small' },
           '把任意 IMAP/SMTP 邮箱接进 DeepSeek Harness：本地备份、实时读信、写邮件与 Agent 工具。',
         ),
+        h(
+          'div',
+          { className: 'mailharbor-onboarding' },
+          h('div', null, h('strong', null, '1'), '添加邮箱账号'),
+          h('div', null, h('strong', null, '2'), '登录（密码 / 应用专用密码 / OAuth2）'),
+          h('div', null, h('strong', null, '3'), '自动同步后会立即出现在列表和 AI 助手里'),
+        ),
+        h(
+          'p',
+          { className: 'small muted' },
+          'Gmail / Microsoft 365 可直接用 OAuth2；其他邮箱用 IMAP 应用专用密码即可。',
+        ),
         error === '' ? null : h('div', { className: 'small', style: { color: 'var(--m-danger)' } }, error),
         h(AddAccountForm, {
           onDone: (next) => {

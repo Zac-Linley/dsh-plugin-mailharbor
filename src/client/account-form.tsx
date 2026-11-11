@@ -19,6 +19,8 @@ export function AddAccountForm({
   onCancel?: () => void
 }): ReactNode {
   const [email, setEmail] = useState('')
+  const [authMode, setAuthMode] = useState<'password' | 'oauth2'>('password')
+  const [oauthProvider, setOauthProvider] = useState<'google' | 'microsoft'>('google')
   const [password, setPassword] = useState('')
   const [label, setLabel] = useState('')
   const [remember, setRemember] = useState(true)
@@ -40,8 +42,8 @@ export function AddAccountForm({
       const domain = domainOf(email)
       const { state } = await api.addAccount({
         email: email.trim(),
-        password,
-        remember,
+        ...(authMode === 'password' ? { password, remember } : {}),
+        ...(authMode === 'oauth2' ? { auth: { type: 'oauth2', provider: oauthProvider } } : {}),
         ...(label.trim() === '' ? {} : { label: label.trim() }),
         ...(advanced
           ? {
@@ -76,6 +78,47 @@ export function AddAccountForm({
       { className: 'mailharbor-grid' },
       h(
         Field,
+        { label: '登录方式' },
+        h(
+          'select',
+          {
+            value: authMode,
+            onChange: (event: { target: { value: string } }) =>
+              setAuthMode(event.target.value === 'oauth2' ? 'oauth2' : 'password'),
+          },
+          h('option', { value: 'password' }, '密码 / 应用专用密码'),
+          h('option', { value: 'oauth2' }, 'OAuth2（Gmail / Outlook）'),
+        ),
+      ),
+      authMode === 'oauth2'
+        ? h(
+            Field,
+            { label: 'OAuth2 服务商' },
+            h(
+              'select',
+              {
+                value: oauthProvider,
+                onChange: (event: { target: { value: string } }) =>
+                  setOauthProvider(event.target.value === 'microsoft' ? 'microsoft' : 'google'),
+              },
+              h('option', { value: 'google' }, 'Google / Gmail'),
+              h('option', { value: 'microsoft' }, 'Microsoft 365 / Outlook'),
+            ),
+          )
+        : null,
+    ),
+    authMode === 'oauth2'
+      ? h(
+          'p',
+          { className: 'small muted' },
+          '保存后到账号设置里点「OAuth 授权」。授权前请先在设置下方填好 OAuth 应用 Client ID。',
+        )
+      : null,
+    h(
+      'div',
+      { className: 'mailharbor-grid' },
+      h(
+        Field,
         { label: '邮箱地址' },
         h('input', {
           type: 'email',
@@ -85,15 +128,17 @@ export function AddAccountForm({
           autoFocus: true,
         }),
       ),
-      h(
-        Field,
-        { label: '密码 / 应用专用密码' },
-        h('input', {
-          type: 'password',
-          value: password,
-          onChange: (event: { target: { value: string } }) => setPassword(event.target.value),
-        }),
-      ),
+      authMode === 'password'
+        ? h(
+            Field,
+            { label: '密码 / 应用专用密码' },
+            h('input', {
+              type: 'password',
+              value: password,
+              onChange: (event: { target: { value: string } }) => setPassword(event.target.value),
+            }),
+          )
+        : null,
     ),
     h(
       Field,
@@ -104,7 +149,9 @@ export function AddAccountForm({
         onChange: (event: { target: { value: string } }) => setLabel(event.target.value),
       }),
     ),
-    h(Toggle, { checked: remember, onChange: setRemember, label: '记住密码（写入系统钥匙串）' }),
+    authMode === 'password'
+      ? h(Toggle, { checked: remember, onChange: setRemember, label: '记住密码（写入系统钥匙串）' })
+      : null,
     h(
       'button',
       { className: 'ghost', onClick: () => setAdvanced(!advanced) },

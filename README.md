@@ -15,7 +15,7 @@ and read state.
 - Package: `@zaclinley/dsh-mailharbor`
 - Requirements: **DSH `>=0.2.2-0 <0.3.0`**, Node **>=24.9** (the runtime bundled with DSH is fine)
 - License: MIT
-- Status: **v0.12.0 — mail workspace with a collapsible account/folder sidebar, AI search, conversation grouping, projects and a Kanban task board**. Server mail is the default view. OAuth2 is next (see [Roadmap](#roadmap)).
+- Status: **v0.15.0 — mail workspace with a collapsible account/folder sidebar, AI search, conversation grouping, projects and a Kanban task board**. Server mail is the default view. OAuth2 is next (see [Roadmap](#roadmap)).
 
 ## Features
 

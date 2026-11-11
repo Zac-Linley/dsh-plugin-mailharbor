@@ -2801,3 +2801,27 @@
   color: var(--m-danger);
   font-size: 11.5px;
 }
+
+.mailharbor-onboarding {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--m-line);
+  border-radius: 10px;
+  background: var(--m-bg-2);
+  font-size: 12px;
+}
+
+.mailharbor-onboarding strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--m-accent-soft);
+  color: var(--m-text);
+  font-size: 11px;
+}

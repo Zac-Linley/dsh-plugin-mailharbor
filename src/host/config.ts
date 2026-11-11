@@ -31,7 +31,7 @@ export interface ProjectSettings {
 }
 
 export interface OAuthSettings {
-  google: { clientId: string; redirectPort: number; scopes: string[] }
+  google: { clientId: string; clientSecret: string; redirectPort: number; scopes: string[] }
   microsoft: { clientId: string; scopes: string[] }
 }
 
@@ -76,7 +76,12 @@ const DEFAULTS = {
   render: { listLimit: 40 },
   projects: { root: join(homedir(), 'work', 'projects') },
   oauth: {
-    google: { clientId: '', redirectPort: 8765, scopes: ['https://mail.google.com/'] },
+    google: {
+      clientId: '',
+      clientSecret: '',
+      redirectPort: 8765,
+      scopes: ['https://mail.google.com/'],
+    },
     microsoft: {
       clientId: '',
       scopes: [
@@ -252,6 +257,7 @@ export function loadConfig(): MailHarborConfig {
     oauth: {
       google: {
         clientId: stringOr(googleRaw.clientId, DEFAULTS.oauth.google.clientId),
+        clientSecret: stringOr(googleRaw.clientSecret, DEFAULTS.oauth.google.clientSecret),
         redirectPort: intOr(googleRaw.redirectPort, DEFAULTS.oauth.google.redirectPort, 1024, 65535),
         scopes: Array.isArray(googleRaw.scopes)
           ? googleRaw.scopes.filter((item): item is string => typeof item === 'string')
@@ -288,6 +294,7 @@ export function saveSettings(patch: {
   ai?: Partial<AiSettings>
   read?: Partial<ReadSettings>
   render?: Partial<RenderSettings>
+  oauth?: OAuthSettings
 }): void {
   writeConfigFile(patch as Record<string, unknown>)
 }
@@ -313,7 +320,7 @@ export function buildAccount(input: NewAccountInput, existing: Account[]): Accou
       username: input.username,
       imap: input.imap as ImapSettings | undefined,
       smtp: input.smtp as SmtpSettings | undefined,
-      auth: { type: 'password' },
+      auth: input.auth ?? { type: 'password' },
       caldav: null,
       enabled: true,
       createdAt: new Date().toISOString(),

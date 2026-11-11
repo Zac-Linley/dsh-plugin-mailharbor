@@ -87,6 +87,7 @@ export interface NewAccountInput {
   smtp?: Partial<SmtpSettings>
   /** Keep the password in the OS credential store instead of this session only. */
   remember?: boolean
+  auth?: PasswordAccountAuth | OAuthAccountAuth
 }
 
 export interface AttachmentMeta {
@@ -188,6 +189,10 @@ export type AiSummaryLength = 'brief' | 'normal' | 'detailed'
 
 export interface SettingsView {
   dataDir: string
+  oauth?: {
+    google: { clientId: string; clientSecret: string; redirectPort: number; scopes: string[] }
+    microsoft: { clientId: string; scopes: string[] }
+  }
   configFile: string
   signature: string
   accounts: Account[]

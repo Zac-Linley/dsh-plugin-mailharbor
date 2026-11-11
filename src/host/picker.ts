@@ -97,3 +97,26 @@ export async function openPath(path: string): Promise<void> {
   }
   await run('xdg-open', [path])
 }
+
+/** Open a URL in the user's default browser. */
+export async function openExternal(url: string): Promise<void> {
+  try {
+    const require = createRequire(import.meta.url)
+    const electron = require('electron') as { shell?: { openExternal(target: string): Promise<void> } }
+    if (electron.shell !== undefined) {
+      await electron.shell.openExternal(url)
+      return
+    }
+  } catch {
+    // Fall through to the platform opener.
+  }
+  if (process.platform === 'darwin') {
+    await run('open', [url])
+    return
+  }
+  if (process.platform === 'win32') {
+    await run('cmd', ['/c', 'start', '', url])
+    return
+  }
+  await run('xdg-open', [url])
+}
