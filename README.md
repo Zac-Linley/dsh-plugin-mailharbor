@@ -15,25 +15,26 @@ and read state.
 - Package: `@zaclinley/dsh-mailharbor`
 - Requirements: **DSH `>=0.2.2-0 <0.3.0`**, Node **>=24.9** (the runtime bundled with DSH is fine)
 - License: MIT
-- Status: **v0.15.0 — mail workspace with a collapsible account/folder sidebar, AI search, conversation grouping, projects and a Kanban task board**. Server mail is the default view. OAuth2 is next (see [Roadmap](#roadmap)).
+- Status: **v0.15.0 — local-first mail workspace with background IMAP sync, OAuth2, AI search, projects and a Kanban task board**.
 
 ## Features
 
-| Area         | What you get                                                                                                                                                                                                                                                                           |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Accounts     | Any IMAP/SMTP mailbox; password or app password; per-account data directory; accounts and folders in the left column                                                                                                                                                                   |
-| Local backup | Incremental IMAP → SQLite backup with UIDVALIDITY handling, batched transactions, content-addressed attachments and a trigram full-text index                                                                                                                                          |
-| Browse       | Accounts and folders in a collapsible left column, paging, conversation grouping by subject, and AI search that understands a sentence like "王敏上个月发的报价"                                                                                                                       |
-| Live server  | **Default view.** Newest messages straight from IMAP with paging; the folder list is cached and the IMAP session stays warm, so reopening is instant                                                                                                                                   |
-| Reader       | Sandboxed HTML rendering with a strict CSP, remote images off by default, plain-text fallback, attachment download                                                                                                                                                                     |
-| Compose      | Rich-text body, attachments (8 MB), reply / reply-all / forward with `In-Reply-To` and `References`, drafts, explicit send confirmation                                                                                                                                                |
-| Drafts       | Save, list in the **Drafts** folder, reopen to continue editing, delete                                                                                                                                                                                                                |
-| AI           | Persistent per-mail workspace: Chinese summary, reply (中/EN), translation, free-form Q&A, writing style; Markdown answers; cards convert into a reply, draft or body text; composer draft/polish/shorten with a version stack; AI search parses a sentence into sender/keywords/dates |
-| Projects     | Turn a mail and its whole AI conversation into a project folder (`BRIEF.md`, `CONVERSATION.md`), registered in DSH Workspaces with a starting session; append later AI records, add more mails from the list, and pick the folder in Finder                                            |
-| Tasks        | Kanban board (待处理 / 进行中 / 已完成 / 终止) with drag & drop, due/priority/owner/project, project filter, source-mail links, and AI extraction from the current mail                                                                                                                |
-| Credentials  | macOS Keychain, libsecret on Linux, Windows Credential Locker; passwords never enter `config.json`                                                                                                                                                                                     |
-| Agent tools  | `mail_status`, `mail_list`, `mail_read`, `mail_search`, `mail_drafts`, `mail_draft`, `mail_backup`                                                                                                                                                                                     |
-| Settings     | DSH Settings → MailHarbor: accounts, servers, checks, signature, read behaviour, list size, AI model and writing style, default project root                                                                                                                                           |
+| Area        | What you get                                                                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Accounts    | Any IMAP/SMTP mailbox; password, app password or OAuth2 (Google / Microsoft 365); per-account data directory                                                  |
+| Local-first | Opens from the local SQLite backup instantly, then syncs new mail in the background; progress popover with start/stop                                         |
+| Browse      | Collapsible account/folder column, paging, subject conversations loaded across the whole backup, AI search over the local index                               |
+| Actions     | Star, archive, delete-to-trash, move to any folder; bulk read/unread/star/archive/delete                                                                      |
+| Reader      | Sandboxed HTML with a strict CSP, inline `cid:` images inlined as data URLs, remote images blocked, attachments collapsed when numerous                       |
+| Compose     | Rich text, attachments, reply/reply-all/forward with `In-Reply-To` and `References`, contact autocomplete, per-account signatures, explicit send confirmation |
+| Drafts      | Local drafts mirrored to IMAP Drafts on save/close (replacing the old copy), cleaned up on discard and send                                                   |
+| AI          | Per-mail workspace: summary (brief/standard/detailed), reply, translation, Q&A, writing style; inline expansion; AI search; compose draft/polish/shorten      |
+| Projects    | Project folder (`BRIEF.md`, `CONVERSATION.md`) registered in DSH Workspaces; append AI records, add mails, open in Finder; delete folder/workspace when asked |
+| Tasks       | Kanban board (待处理 / 进行中 / 已完成 / 终止) with due/priority/owner/project, source-mail links and AI extraction                                           |
+| Credentials | macOS Keychain, libsecret, Windows Credential Locker; OAuth tokens stored separately and refreshed in the background; secrets never enter `config.json`       |
+| Migration   | Export/import a JSON profile: accounts without secrets, signature, reading settings and OAuth app config                                                      |
+| Agent tools | `mail_status`, `mail_list`, `mail_read`, `mail_search`, `mail_drafts`, `mail_draft`, `mail_backup`                                                            |
+| Settings    | DSH Settings → MailHarbor: accounts, OAuth app IDs, checks, signatures, reading, list size, AI model and writing style, project root                          |
 
 ## Screenshots
 
@@ -75,15 +76,15 @@ dsh plugin --profile desktop add link:$PWD
 1. Open the **MailHarbor** panel from the sidebar.
 2. Add an account: address + password (or app password). **Advanced** lets you set IMAP/SMTP hosts,
    ports and TLS. The account is verified against IMAP before it is saved.
-3. Browse **Local backup** right away; press **Backup** to pull mail from the server.
-4. Switch to **Server live** for the newest messages. Press **Write** to compose.
+3. The list opens from the local backup immediately; the sync indicator pulls new mail in the background (and every poll interval).
+4. Press **Write** to compose. New mail appears after the next background sync.
 
 ### Gmail, Outlook, and other providers
 
-- Gmail: enable IMAP in Gmail settings and use an **app password** (2-Step Verification required).
-  OAuth2 sign-in arrives in v0.2.
-- Microsoft 365: basic auth is disabled; use an app password only if your tenant still allows IMAP
-  AUTH, otherwise wait for the OAuth2 release.
+- Gmail: use OAuth2 (add a Google OAuth client ID in Settings) or an **app password** with IMAP
+  enabled and 2-Step Verification.
+- Microsoft 365: use OAuth2 with your tenant's client ID; basic auth/app passwords only work if
+  the tenant still allows IMAP AUTH.
 - Yahoo: app password. Self-hosted: any IMAP/SMTP endpoints with STARTTLS or implicit TLS.
 
 ## Migrating from `dsh-plugin-mail`
