@@ -206,6 +206,10 @@ export function MailPanel(): ReactNode {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
   const searchRef = useRef<HTMLInputElement | null>(null)
   const threadCache = useRef(new Map<string, { at: number; items: MessageSummary[] }>())
+  const rowsRef = useRef<HTMLDivElement | null>(null)
+  const autoLoadRef = useRef(0)
+  const [listScroll, setListScroll] = useState(0)
+  const [listViewport, setListViewport] = useState(800)
   const [projectOptions, setProjectOptions] = useState<Project[]>([])
   const [targetProject, setTargetProject] = useState('')
   const [extraction, setExtraction] = useState<{ items: TaskSuggestion[]; checked: boolean[] } | null>(null)
@@ -656,6 +660,11 @@ export function MailPanel(): ReactNode {
     setAiInfo(null)
     setSearch('')
   }, [accountScope, source])
+
+  useEffect(() => {
+    if (rowsRef.current !== null) rowsRef.current.scrollTop = 0
+    setListScroll(0)
+  }, [accountScope, mailbox, search, unreadOnly, fromFilter, sinceFilter, beforeFilter, attachmentOnly])
 
   useEffect(() => {
     if (selected === null) {
@@ -1292,6 +1301,28 @@ export function MailPanel(): ReactNode {
 
   const isSent = isSentFolder(mailbox)
   const groups = groupMessages(items)
+  const virtualEnabled = !selectMode && !showingDrafts && groups.length > 30
+  const offsets: number[] = []
+  let virtualTotal = 0
+  for (const group of groups) {
+    offsets.push(virtualTotal)
+    const expanded = expandedGroups.includes(group.key)
+    virtualTotal += 64 + (expanded ? Math.max(0, group.items.length - 1) * 64 : 0)
+  }
+  let virtualStart = 0
+  let virtualEnd = groups.length
+  if (virtualEnabled) {
+    const top = Math.max(0, listScroll - 600)
+    const bottom = listScroll + listViewport + 600
+    virtualStart = 0
+    while (virtualStart < groups.length && (offsets[virtualStart] ?? 0) < top) virtualStart += 1
+    virtualEnd = virtualStart
+    while (virtualEnd < groups.length && (offsets[virtualEnd] ?? 0) < bottom) virtualEnd += 1
+    virtualStart = Math.max(0, virtualStart - 3)
+    virtualEnd = Math.min(groups.length, virtualEnd + 3)
+  }
+  const topSpacer = virtualEnabled ? (offsets[virtualStart] ?? 0) : 0
+  const bottomSpacer = virtualEnabled ? virtualTotal - (offsets[virtualEnd] ?? virtualTotal) : 0
 
   const renderMessage = (
     item: MessageSummary,
@@ -1380,6 +1411,22 @@ export function MailPanel(): ReactNode {
       item.snippet === ''
         ? null
         : h('span', { className: 'snippet' }, highlight(item.snippet, aiInfo?.keywords[0] ?? search)),
+    )
+  }
+
+  const renderGroup = (group: MessageGroup): ReactNode => {
+    const latest = group.items[0]
+    if (latest === undefined) return null
+    const expanded = expandedGroups.includes(group.key)
+    return h(
+      'div',
+      { className: 'mailharbor-thread', key: group.key },
+      renderMessage(latest, {
+        groupCount: group.items.length,
+        groupKey: group.key,
+        expanded,
+      }),
+      expanded ? group.items.slice(1).map((item) => renderMessage(item, { compact: true })) : null,
     )
   }
 
@@ -1972,7 +2019,28 @@ export function MailPanel(): ReactNode {
               : null,
             h(
               'div',
-              { className: 'mailharbor-rows' },
+              {
+                className: 'mailharbor-rows',
+                ref: rowsRef,
+                onScroll: (event: {
+                  currentTarget: { scrollTop: number; clientHeight: number; scrollHeight: number }
+                }) => {
+                  const target = event.currentTarget
+                  setListScroll(target.scrollTop)
+                  setListViewport(target.clientHeight)
+                  const now = Date.now()
+                  if (
+                    now - autoLoadRef.current > 800 &&
+                    target.scrollTop + target.clientHeight > target.scrollHeight - 220 &&
+                    page.total > items.length &&
+                    !loading &&
+                    aiInfo === null
+                  ) {
+                    autoLoadRef.current = now
+                    setLimit((current) => current + 40)
+                  }
+                },
+              },
               loading && items.length === 0 && drafts.length === 0
                 ? h('div', { className: 'mailharbor-empty' }, '正在读取…')
                 : showingDrafts
@@ -2099,23 +2167,19 @@ export function MailPanel(): ReactNode {
                       )
                     : selectMode
                       ? items.map((item) => renderMessage(item))
-                      : groups.map((group) => {
-                          const latest = group.items[0]
-                          if (latest === undefined) return null
-                          const expanded = expandedGroups.includes(group.key)
-                          return h(
-                            'div',
-                            { className: 'mailharbor-thread', key: group.key },
-                            renderMessage(latest, {
-                              groupCount: group.items.length,
-                              groupKey: group.key,
-                              expanded,
+                      : virtualEnabled
+                        ? [
+                            h('div', {
+                              key: 'virtual-top',
+                              style: { height: `${String(topSpacer)}px` },
                             }),
-                            expanded
-                              ? group.items.slice(1).map((item) => renderMessage(item, { compact: true }))
-                              : null,
-                          )
-                        }),
+                            ...groups.slice(virtualStart, virtualEnd).map(renderGroup),
+                            h('div', {
+                              key: 'virtual-bottom',
+                              style: { height: `${String(bottomSpacer)}px` },
+                            }),
+                          ]
+                        : groups.map(renderGroup),
             ),
             !showingDrafts && items.length > 0
               ? h(
