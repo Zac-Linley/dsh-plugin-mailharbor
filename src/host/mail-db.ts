@@ -713,6 +713,24 @@ export class MailDatabase {
     }
   }
 
+  /** Recover To/Cc from raw headers when the stored summary is empty. */
+  private recipientsFromRaw(raw: Uint8Array): {
+    to: ReturnType<typeof parseAddressList>
+    cc: ReturnType<typeof parseAddressList>
+  } {
+    const text = Buffer.from(raw.subarray(0, Math.min(raw.byteLength, 300_000))).toString('utf8')
+    const separator = text.search(/\r?\n\r?\n/)
+    const head = (separator >= 0 ? text.slice(0, separator) : text).replace(/\r?\n[ \t]+/g, ' ')
+    const value = (name: string): string => {
+      const match = new RegExp(`^${name}:\\s*(.*)$`, 'im').exec(head)
+      return match === null ? '' : String(match[1] ?? '')
+    }
+    const to = parseAddressList(
+      value('to') || value('delivered-to') || value('x-original-to') || value('apparently-to'),
+    )
+    return { to, cc: parseAddressList(value('cc')) }
+  }
+
   get(localId: number): MessageDetail | undefined {
     const db = this.open()
     const row = db
@@ -755,6 +773,20 @@ export class MailDatabase {
         size: Number(item.size ?? 0),
       }))
     const max = this.options.maxBodyChars ?? 400_000
+    let to = parseAddressList(String(row.to_addr ?? ''))
+    let cc = parseAddressList(String(row.cc ?? ''))
+    if (to.length === 0) {
+      try {
+        const raw = db.prepare('SELECT raw_eml FROM emails WHERE id = ?').get(localId)?.raw_eml
+        if (raw instanceof Uint8Array) {
+          const recovered = this.recipientsFromRaw(raw)
+          to = recovered.to
+          if (cc.length === 0) cc = recovered.cc
+        }
+      } catch {
+        // Leave them empty if the raw message is missing.
+      }
+    }
     const bodyText = String(row.body_text ?? '')
     const inlineImages = wantsInline
       ? (rows as Record<string, unknown>[])
@@ -774,7 +806,8 @@ export class MailDatabase {
       : []
     return {
       ...rowToSummary(row),
-      cc: parseAddressList(String(row.cc ?? '')),
+      to,
+      cc,
       replyTo: [],
       text: truncate(bodyText, max),
       html: bodyHtml === '' ? null : truncate(inlineCidImages(bodyHtml, inlineImages), max * 2),

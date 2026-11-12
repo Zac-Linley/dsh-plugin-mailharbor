@@ -617,7 +617,11 @@ export function Reader({
                     'div',
                     { className: 'mailharbor-thread-body' },
                     toLine === '' && ccLine === ''
-                      ? null
+                      ? h(
+                          'div',
+                          { className: 'mailharbor-thread-recipients small muted' },
+                          h('span', null, '收件人：未记录（可能是密送或邮件列表）'),
+                        )
                       : h(
                           'div',
                           { className: 'mailharbor-thread-recipients small muted' },
