@@ -437,12 +437,12 @@ export function Reader({
               h(Icon, { name: detailOpen ? 'chevronLeft' : 'chevronRight', size: 12 }),
             ),
           ),
-      threaded || !detailOpen
+      threaded || !detailOpen || (detail.to.length === 0 && detail.cc.length === 0)
         ? null
         : h(
             'div',
             { className: 'mailharbor-reader-recipients' },
-            h('span', null, `收件人：${addressLine(detail.to) || '—'}`),
+            detail.to.length === 0 ? null : h('span', null, `收件人：${addressLine(detail.to)}`),
             detail.cc.length === 0 ? null : h('span', null, `抄送：${addressLine(detail.cc)}`),
           ),
       h(
@@ -574,6 +574,9 @@ export function Reader({
             const sentItem = isSentMailbox(mailbox) && item.to.length > 0
             const who = sentItem ? (item.to[0] ?? item.from) : item.from
             const selectedItem = item.id === detail.id
+            const toLine =
+              addressLine(item.to) || (itemDetail === undefined ? '' : addressLine(itemDetail.to))
+            const ccLine = itemDetail === undefined ? '' : addressLine(itemDetail.cc)
             return h(
               'div',
               {
@@ -613,14 +616,14 @@ export function Reader({
                 ? h(
                     'div',
                     { className: 'mailharbor-thread-body' },
-                    h(
-                      'div',
-                      { className: 'mailharbor-thread-recipients small muted' },
-                      h('span', null, `收件人：${addressLine(item.to) || '—'}`),
-                      itemDetail !== undefined && itemDetail.cc.length > 0
-                        ? h('span', null, `抄送：${addressLine(itemDetail.cc)}`)
-                        : null,
-                    ),
+                    toLine === '' && ccLine === ''
+                      ? null
+                      : h(
+                          'div',
+                          { className: 'mailharbor-thread-recipients small muted' },
+                          toLine === '' ? null : h('span', null, `收件人：${toLine}`),
+                          ccLine === '' ? null : h('span', null, `抄送：${ccLine}`),
+                        ),
                     itemDetail === undefined
                       ? h(
                           'div',
