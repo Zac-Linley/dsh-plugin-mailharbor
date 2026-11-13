@@ -259,14 +259,18 @@ export interface AiThread {
   updatedAt: string
 }
 
+export type TaskStatus = 'TODO' | 'IN-PROCESS' | 'WAITING' | 'COMPLETED' | 'CANCELLED'
+
 export interface Task {
   id: string
   accountId: string
   projectId: string | null
+  parentId: string | null
   title: string
   notes: string
   due: string
-  status: 'NEEDS-ACTION' | 'IN-PROCESS' | 'COMPLETED' | 'CANCELLED'
+  status: TaskStatus
+  waitingOn: string
   priority: number
   owner: string
   messageKey: string
@@ -284,19 +288,42 @@ export interface ProjectMessageLink {
   date: string
 }
 
+export type ProjectStatus = 'active' | 'paused' | 'done' | 'archived'
+
+export interface ProjectNote {
+  id: string
+  body: string
+  createdAt: string
+  updatedAt?: string
+  taskIds: string[]
+}
+
+export interface ProjectMilestone {
+  id: string
+  title: string
+  due: string
+  done: boolean
+}
+
 export interface Project {
   id: string
   name: string
+  status: ProjectStatus
+  notes: ProjectNote[]
+  milestones: ProjectMilestone[]
   path: string
   workspaceId: string
   sessionId: string
+  sessionIds: string[]
   accountIds: string[]
   messages: ProjectMessageLink[]
   threads: { accountId: string; key: string }[]
   createdAt: string
   updatedAt: string
-  /** Task rollup shown in the project list. */
+  /** Neutral task counts shown on project cards. */
   taskTotal?: number
+  taskTodo?: number
+  taskWaiting?: number
   taskDone?: number
 }
 

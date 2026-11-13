@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ProjectStore, appendConversation, createProject } from '../src/host/projects.js'
 
 let dir = ''
@@ -15,9 +15,8 @@ afterEach(() => {
 })
 
 describe('createProject', () => {
-  it('creates the folder, brief and conversation, and starts a session', async () => {
+  it('creates the folder, brief and conversation without auto-starting a session', async () => {
     const store = new ProjectStore(join(dir, 'projects.json'))
-    const append = vi.fn()
     const result = await createProject({
       store,
       input: {
@@ -28,12 +27,10 @@ describe('createProject', () => {
         message: { accountId: 'acc_1', key: 'mid:m1', subject: '报价确认', date: '2026-11-06' },
       },
       registry: { create: async () => ({ id: 'ws_1' }) },
-      sessions: { create: () => ({ append }) },
     })
 
     expect(result.project.workspaceId).toBe('ws_1')
-    expect(result.project.sessionId).not.toBe('')
-    expect(append).toHaveBeenCalledWith('user/message', expect.anything(), expect.anything())
+    expect(result.project.sessionId).toBe('')
     expect(existsSync(join(result.project.path, 'BRIEF.md'))).toBe(true)
     expect(readFileSync(join(result.project.path, 'CONVERSATION.md'), 'utf8')).toContain('请确认报价')
     expect(store.findByMessage('acc_1', 'mid:m1')?.id).toBe(result.project.id)
@@ -56,9 +53,13 @@ describe('createProject', () => {
     const project = store.create({
       id: 'prj_1',
       name: 'p',
+      status: 'active',
+      notes: [],
+      milestones: [],
       path: join(dir, 'p'),
       workspaceId: '',
       sessionId: '',
+      sessionIds: [],
       accountIds: ['acc_1'],
       messages: [],
       threads: [],

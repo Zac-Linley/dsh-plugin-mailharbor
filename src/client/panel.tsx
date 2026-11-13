@@ -12,6 +12,7 @@ import type {
 } from '../shared/types.js'
 import { api, ApiError } from './api.js'
 import { AiRail, type AiRequest } from './ai-rail.js'
+import { ProjectDetail } from './project-detail.js'
 import type { AiReplyInit } from './reply.js'
 import { AddAccountForm, AddAccountModal, LoginForm } from './account-form.js'
 import { Avatar, ErrorBar, Modal, shortDate } from './components.js'
@@ -231,6 +232,7 @@ export function MailPanel(): ReactNode {
   const [managerRename, setManagerRename] = useState<{ id: string; name: string } | null>(null)
   const [managerConfirm, setManagerConfirm] = useState('')
   const [managerDeleteFiles, setManagerDeleteFiles] = useState(false)
+  const [detailProject, setDetailProject] = useState<Project | null>(null)
   const [managerBusy, setManagerBusy] = useState(false)
   const [aiSearching, setAiSearching] = useState(false)
   const [opening, setOpening] = useState<string | null>(null)
@@ -2286,6 +2288,29 @@ export function MailPanel(): ReactNode {
               })
             : null,
         ),
+    detailProject === null
+      ? null
+      : h(ProjectDetail, {
+          project: detailProject,
+          onClose: () => setDetailProject(null),
+          onChanged: (next) => {
+            setDetailProject(next)
+            setManagerProjects((items) =>
+              items.map((item) =>
+                item.id === next.id
+                  ? {
+                      ...item,
+                      ...next,
+                      taskTotal: item.taskTotal,
+                      taskTodo: item.taskTodo,
+                      taskWaiting: item.taskWaiting,
+                      taskDone: item.taskDone,
+                    }
+                  : item,
+              ),
+            )
+          },
+        }),
     managerOpen
       ? h(
           Modal,
@@ -2321,26 +2346,26 @@ export function MailPanel(): ReactNode {
                     h(
                       'div',
                       { className: 'project-manager-main' },
-                      typeof project.taskTotal === 'number' && project.taskTotal > 0
-                        ? h(
-                            'div',
-                            { className: 'project-progress' },
-                            h(
-                              'span',
-                              { className: 'project-progress-bar' },
-                              h('span', {
-                                style: {
-                                  width: `${String(Math.round(((project.taskDone ?? 0) / project.taskTotal) * 100))}%`,
-                                },
-                              }),
-                            ),
-                            h(
-                              'span',
-                              { className: 'small muted' },
-                              `任务 ${String(project.taskDone ?? 0)}/${String(project.taskTotal)}`,
-                            ),
-                          )
-                        : null,
+                      h(
+                        'div',
+                        { className: 'project-manager-meta' },
+                        h(
+                          'span',
+                          { className: `badge project-${project.status ?? 'active'}` },
+                          project.status === 'paused'
+                            ? '暂停'
+                            : project.status === 'done'
+                              ? '已完成'
+                              : project.status === 'archived'
+                                ? '已归档'
+                                : '进行中',
+                        ),
+                        h(
+                          'span',
+                          { className: 'small muted' },
+                          `待办 ${String(project.taskTodo ?? 0)} · 等待 ${String(project.taskWaiting ?? 0)} · 完成 ${String(project.taskDone ?? 0)}`,
+                        ),
+                      ),
                       managerRename?.id === project.id
                         ? h('input', {
                             value: managerRename.name,
@@ -2350,7 +2375,7 @@ export function MailPanel(): ReactNode {
                             onKeyDown: (event: { key: string }) => {
                               if (event.key === 'Enter' && managerRename.name.trim() !== '') {
                                 void managerAction(() =>
-                                  api.updateProject(project.id, managerRename.name.trim()),
+                                  api.updateProject(project.id, { name: managerRename.name.trim() }),
                                 )
                               }
                             },
@@ -2365,6 +2390,14 @@ export function MailPanel(): ReactNode {
                     h(
                       'div',
                       { className: 'project-manager-actions' },
+                      h(
+                        'button',
+                        {
+                          className: 'primary small',
+                          onClick: () => setDetailProject(project),
+                        },
+                        '打开',
+                      ),
                       managerRename?.id === project.id
                         ? h(
                             'button',
@@ -2373,7 +2406,7 @@ export function MailPanel(): ReactNode {
                               disabled: managerBusy || managerRename.name.trim() === '',
                               onClick: () =>
                                 void managerAction(() =>
-                                  api.updateProject(project.id, managerRename.name.trim()),
+                                  api.updateProject(project.id, { name: managerRename.name.trim() }),
                                 ),
                             },
                             '保存名称',

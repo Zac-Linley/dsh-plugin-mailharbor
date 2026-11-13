@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
-const STATUSES = new Set(['NEEDS-ACTION', 'IN-PROCESS', 'COMPLETED', 'CANCELLED'])
+const STATUSES = new Set(['TODO', 'IN-PROCESS', 'WAITING', 'COMPLETED', 'CANCELLED'])
 
 function now(): string {
   return new Date().toISOString()
@@ -13,6 +13,8 @@ export interface TaskRecord {
   id: string
   accountId: string
   projectId: string | null
+  parentId: string | null
+  waitingOn: string
   calendarHref: string | null
   href: string | null
   etag: string | null
@@ -38,6 +40,8 @@ function rowToTask(row: Record<string, unknown> | undefined): TaskRecord | undef
     id: String(row.id),
     accountId: String(row.account_id),
     projectId: row.project_id === null || row.project_id === undefined ? null : String(row.project_id),
+    parentId: row.parent_id === null || row.parent_id === undefined ? null : String(row.parent_id),
+    waitingOn: String(row.waiting_on ?? ''),
     calendarHref:
       row.calendar_href === null || row.calendar_href === undefined ? null : String(row.calendar_href),
     href: row.href === null || row.href === undefined ? null : String(row.href),
@@ -61,8 +65,9 @@ function rowToTask(row: Record<string, unknown> | undefined): TaskRecord | undef
 }
 
 function statusOf(value: unknown): string {
-  const text = String(value ?? 'NEEDS-ACTION').toUpperCase()
-  return STATUSES.has(text) ? text : 'NEEDS-ACTION'
+  const text = String(value ?? 'TODO').toUpperCase()
+  if (text === 'NEEDS-ACTION') return 'TODO'
+  return STATUSES.has(text) ? text : 'TODO'
 }
 
 /**
@@ -98,6 +103,8 @@ export class TaskStore {
         id TEXT PRIMARY KEY,
         account_id TEXT NOT NULL,
         project_id TEXT,
+        parent_id TEXT,
+        waiting_on TEXT,
         calendar_href TEXT,
         href TEXT,
         etag TEXT,
@@ -127,6 +134,14 @@ export class TaskStore {
         error TEXT
       );
     `)
+    const columns = db.prepare('PRAGMA table_info(tasks)').all() as { name?: string }[]
+    if (!columns.some((column) => column.name === 'parent_id')) {
+      db.exec('ALTER TABLE tasks ADD COLUMN parent_id TEXT')
+    }
+    if (!columns.some((column) => column.name === 'waiting_on')) {
+      db.exec('ALTER TABLE tasks ADD COLUMN waiting_on TEXT')
+    }
+    db.exec("UPDATE tasks SET status = 'TODO' WHERE status = 'NEEDS-ACTION'")
     this.db = db
     return db
   }
@@ -183,6 +198,8 @@ export class TaskStore {
     priority?: number
     owner?: string
     projectId?: string | null
+    parentId?: string | null
+    waitingOn?: string
     messageKey?: string
     messageSubject?: string
   }): TaskRecord {
@@ -190,18 +207,28 @@ export class TaskStore {
     if (title === '') throw new Error('任务标题不能为空')
     if (title.length > 300) throw new Error('任务标题过长')
     const status = statusOf(input.status)
+    if (status === 'WAITING' && String(input.waitingOn ?? '').trim() === '') {
+      throw new Error('等待中任务需要填写等谁/等什么')
+    }
+    if (input.parentId !== undefined && input.parentId !== null) {
+      const parent = this.get(input.parentId)
+      if (parent === undefined) throw new Error('父任务不存在')
+      if (parent.parentId !== null) throw new Error('子任务下不能再建子任务')
+    }
     const id = `task_${randomUUID()}`
     const stamp = now()
     this.open()
       .prepare(
-        `INSERT INTO tasks (id, account_id, project_id, uid, title, notes, due, status, priority, owner,
-                            message_key, message_subject, completed_at, dirty, deleted, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
+        `INSERT INTO tasks (id, account_id, project_id, parent_id, waiting_on, uid, title, notes, due, status,
+                            priority, owner, message_key, message_subject, completed_at, dirty, deleted, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
       )
       .run(
         id,
         input.accountId,
         input.projectId ?? null,
+        input.parentId ?? null,
+        String(input.waitingOn ?? ''),
         `${randomUUID()}@dsh-mailharbor`,
         title,
         String(input.notes ?? ''),
@@ -231,17 +258,29 @@ export class TaskStore {
       priority: fields.priority === undefined ? current.priority : Number(fields.priority),
       owner: fields.owner === undefined ? current.owner : String(fields.owner ?? ''),
       projectId: fields.projectId === undefined ? current.projectId : fields.projectId,
+      parentId: fields.parentId === undefined ? current.parentId : fields.parentId,
+      waitingOn: fields.waitingOn === undefined ? current.waitingOn : String(fields.waitingOn ?? ''),
       messageKey: fields.messageKey === undefined ? current.messageKey : String(fields.messageKey),
       messageSubject:
         fields.messageSubject === undefined ? current.messageSubject : String(fields.messageSubject),
     }
     if (next.title === '') throw new Error('任务标题不能为空')
+    if (next.status === 'WAITING' && next.waitingOn.trim() === '') {
+      throw new Error('等待中任务需要填写等谁/等什么')
+    }
+    if (next.parentId !== null) {
+      if (next.parentId === id) throw new Error('任务不能作为自己的子任务')
+      const parent = this.get(next.parentId)
+      if (parent === undefined) throw new Error('父任务不存在')
+      if (parent.parentId !== null) throw new Error('子任务下不能再建子任务')
+    }
     const stamp = now()
     const completedAt = next.status === 'COMPLETED' ? (current.completedAt ?? stamp) : null
     this.open()
       .prepare(
         `UPDATE tasks SET title = ?, notes = ?, due = ?, status = ?, priority = ?, owner = ?, project_id = ?,
-                message_key = ?, message_subject = ?, completed_at = ?, dirty = 1, updated_at = ? WHERE id = ?`,
+                parent_id = ?, waiting_on = ?, message_key = ?, message_subject = ?, completed_at = ?,
+                dirty = 1, updated_at = ? WHERE id = ?`,
       )
       .run(
         next.title,
@@ -251,6 +290,8 @@ export class TaskStore {
         Math.max(0, Math.min(9, Number(next.priority) || 0)),
         next.owner,
         next.projectId,
+        next.parentId,
+        next.waitingOn,
         next.messageKey,
         next.messageSubject,
         completedAt,

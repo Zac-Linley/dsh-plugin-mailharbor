@@ -15,10 +15,11 @@ const FILTERS: { id: Filter; label: string }[] = [
 ]
 
 const COLUMNS: { status: Task['status']; label: string; hint: string }[] = [
-  { status: 'NEEDS-ACTION', label: '待处理', hint: '还没开始' },
+  { status: 'TODO', label: '待办', hint: '还没开始' },
   { status: 'IN-PROCESS', label: '进行中', hint: '正在做' },
+  { status: 'WAITING', label: '等待中', hint: '等别人/等外部' },
   { status: 'COMPLETED', label: '已完成', hint: '收尾' },
-  { status: 'CANCELLED', label: '终止', hint: '不做了' },
+  { status: 'CANCELLED', label: '已取消', hint: '不做了' },
 ]
 
 const PRIORITY_LABEL: Record<number, string> = { 0: '无', 3: '低', 5: '中', 9: '高' }
@@ -54,7 +55,8 @@ const EMPTY = {
   notes: '',
   due: '',
   priority: 0,
-  status: 'NEEDS-ACTION' as Task['status'],
+  status: 'TODO' as Task['status'],
+  waitingOn: '',
   owner: '',
   projectId: '',
 }
@@ -249,6 +251,7 @@ export function TasksPanel(): ReactNode {
           priority: draft.priority,
           status: draft.status,
           owner: draft.owner,
+          waitingOn: draft.waitingOn,
           projectId: draft.projectId === '' ? null : draft.projectId,
         })
       } else {
@@ -259,6 +262,7 @@ export function TasksPanel(): ReactNode {
           priority: draft.priority,
           status: draft.status,
           owner: draft.owner,
+          waitingOn: draft.waitingOn,
           projectId: draft.projectId === '' ? null : draft.projectId,
         })
       }
@@ -297,7 +301,7 @@ export function TasksPanel(): ReactNode {
       h('span', { className: 'spacer' }),
       h(
         'button',
-        { className: 'primary', onClick: () => setCreating('NEEDS-ACTION') },
+        { className: 'primary', onClick: () => setCreating('TODO') },
         h(Icon, { name: 'plus' }),
         '新建任务',
       ),
@@ -435,6 +439,9 @@ export function TasksPanel(): ReactNode {
                       h(
                         'div',
                         { className: 'task-card-meta' },
+                        task.status === 'WAITING' && task.waitingOn !== ''
+                          ? h('span', { className: 'task-waiting' }, `等待：${task.waitingOn}`)
+                          : null,
                         task.due === ''
                           ? null
                           : h(
@@ -490,7 +497,7 @@ export function TasksPanel(): ReactNode {
     creating !== null || editing !== null
       ? h(TaskEditor, {
           task: editing,
-          status: creating ?? 'NEEDS-ACTION',
+          status: creating ?? 'TODO',
           projects,
           busy,
           onClose: () => {
@@ -680,6 +687,7 @@ function TaskEditor({
           due: task.due.slice(0, 10),
           priority: task.priority,
           status: task.status,
+          waitingOn: task.waitingOn,
           owner: task.owner,
           projectId: task.projectId ?? '',
         }),
@@ -726,7 +734,10 @@ function TaskEditor({
           'button',
           {
             className: 'primary',
-            disabled: busy || draft.title.trim() === '',
+            disabled:
+              busy ||
+              draft.title.trim() === '' ||
+              (draft.status === 'WAITING' && draft.waitingOn.trim() === ''),
             onClick: () => onSave(draft),
           },
           busy ? '保存中…' : '保存任务',
@@ -751,6 +762,14 @@ function TaskEditor({
           onChange: (next) => set({ status: next }),
         }),
       ),
+      draft.status === 'WAITING'
+        ? h('input', {
+            className: 'task-waiting-input',
+            value: draft.waitingOn,
+            placeholder: '等谁 / 等什么，例如：张三回合同',
+            onChange: (event: { target: { value: string } }) => set({ waitingOn: event.target.value }),
+          })
+        : null,
       h(
         'div',
         { className: 'task-editor-columns' },

@@ -445,10 +445,33 @@ export const api = {
 
   pickDirectory: () => request<{ path: string | null }>('projects/pick-directory', { method: 'POST' }),
 
-  updateProject: (id: string, name: string) =>
+  updateProject: (id: string, patch: { name?: string; status?: Project['status'] }) =>
     request<{ project: Project }>(`projects/${encodeURIComponent(id)}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(patch),
+    }),
+
+  addProjectNote: (id: string, body: string, createdAt?: string) =>
+    request<{ project: Project }>(`projects/${encodeURIComponent(id)}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ body, ...(createdAt === undefined ? {} : { createdAt }) }),
+    }),
+
+  updateProjectNote: (id: string, noteId: string, body: string, createdAt: string) =>
+    request<{ project: Project }>(`projects/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ body, createdAt }),
+    }),
+
+  deleteProjectNote: (id: string, noteId: string) =>
+    request<{ project: Project }>(`projects/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, {
+      method: 'DELETE',
+    }),
+
+  convertProjectNotes: (id: string, noteIds: string[]) =>
+    request<{ tasks: Task[]; project: Project }>(`projects/${encodeURIComponent(id)}/notes/convert`, {
+      method: 'POST',
+      body: JSON.stringify({ noteIds }),
     }),
 
   deleteProject: (id: string, files = false) =>

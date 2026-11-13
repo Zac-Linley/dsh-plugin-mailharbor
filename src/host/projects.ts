@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DshSessions, DshWorkspaceRegistry } from './dsh.js'
+import type { ProjectMilestone, ProjectNote, ProjectStatus } from '../shared/types.js'
 
 export interface ProjectMessage {
   accountId: string
@@ -18,9 +19,13 @@ export interface ProjectThread {
 export interface ProjectRecord {
   id: string
   name: string
+  status: ProjectStatus
+  notes: ProjectNote[]
+  milestones: ProjectMilestone[]
   path: string
   workspaceId: string
   sessionId: string
+  sessionIds: string[]
   accountIds: string[]
   messages: ProjectMessage[]
   threads: ProjectThread[]
@@ -29,7 +34,7 @@ export interface ProjectRecord {
 }
 
 interface ProjectFile {
-  version: 1
+  version: 2
   projects: ProjectRecord[]
 }
 
@@ -54,7 +59,20 @@ export class ProjectStore {
       parsed !== null && typeof parsed === 'object' && Array.isArray((parsed as ProjectFile).projects)
         ? (parsed as ProjectFile).projects
         : []
-    this.cache = { version: 1, projects: projects.filter(isProject) }
+    this.cache = {
+      version: 2,
+      projects: projects.filter(isProject).map((project) => ({
+        ...project,
+        status: project.status ?? 'active',
+        notes: Array.isArray(project.notes) ? project.notes : [],
+        milestones: Array.isArray(project.milestones) ? project.milestones : [],
+        sessionIds: Array.isArray(project.sessionIds)
+          ? project.sessionIds
+          : project.sessionId === ''
+            ? []
+            : [project.sessionId],
+      })),
+    }
     return this.cache
   }
 
@@ -112,6 +130,52 @@ export class ProjectStore {
     const project = this.get(id)
     if (project === undefined) return undefined
     project.messages = project.messages.filter((item) => !(item.accountId === accountId && item.key === key))
+    project.updatedAt = new Date().toISOString()
+    this.flush()
+    return project
+  }
+
+  addNote(id: string, body: string, createdAt: string): ProjectRecord | undefined {
+    const project = this.get(id)
+    if (project === undefined) return undefined
+    const note: ProjectNote = {
+      id: `note_${randomUUID().slice(0, 8)}`,
+      body,
+      createdAt,
+      taskIds: [],
+    }
+    project.notes.unshift(note)
+    project.updatedAt = new Date().toISOString()
+    this.flush()
+    return project
+  }
+
+  updateNote(id: string, noteId: string, body: string, createdAt: string): ProjectRecord | undefined {
+    const project = this.get(id)
+    const note = project?.notes.find((item) => item.id === noteId)
+    if (project === undefined || note === undefined) return undefined
+    note.body = body
+    note.createdAt = createdAt
+    note.updatedAt = new Date().toISOString()
+    project.updatedAt = note.updatedAt
+    this.flush()
+    return project
+  }
+
+  removeNote(id: string, noteId: string): ProjectRecord | undefined {
+    const project = this.get(id)
+    if (project === undefined) return undefined
+    project.notes = project.notes.filter((item) => item.id !== noteId)
+    project.updatedAt = new Date().toISOString()
+    this.flush()
+    return project
+  }
+
+  linkNoteTasks(id: string, noteId: string, taskIds: string[]): ProjectRecord | undefined {
+    const project = this.get(id)
+    const note = project?.notes.find((item) => item.id === noteId)
+    if (project === undefined || note === undefined) return undefined
+    note.taskIds = [...new Set([...note.taskIds, ...taskIds])]
     project.updatedAt = new Date().toISOString()
     this.flush()
     return project
@@ -217,34 +281,18 @@ export async function createProject(options: {
     warnings.push('当前 DSH 组合没有 workspaceRegistry，项目目录已创建但没有注册到侧栏')
   }
 
-  let sessionId = ''
-  if (options.sessions !== undefined) {
-    try {
-      sessionId = randomUUID()
-      const session = options.sessions.create(sessionId, { meta: { cwd: path } })
-      session.append(
-        'user/message',
-        {
-          role: 'user',
-          content: [{ type: 'text', text: `我创建了一个邮件项目「${name}」。\n\n${brief}` }],
-          source: { kind: 'user' },
-        },
-        { surfaceOp: 'append' },
-      )
-    } catch (error) {
-      warnings.push(`会话创建失败：${error instanceof Error ? error.message : String(error)}`)
-      sessionId = ''
-    }
-  } else {
-    warnings.push('当前 DSH 组合没有 sessions 服务，未创建项目会话')
-  }
+  const sessionId = ''
 
   const project: ProjectRecord = {
     id,
     name,
+    status: 'active',
+    notes: [],
+    milestones: [],
     path,
     workspaceId,
     sessionId,
+    sessionIds: sessionId === '' ? [] : [sessionId],
     accountIds: [input.accountId],
     messages: input.message === undefined ? [] : [input.message],
     threads: input.thread === undefined ? [] : [input.thread],

@@ -957,10 +957,12 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       title: String(payload.title ?? ''),
       notes: typeof payload.notes === 'string' ? payload.notes : '',
       due: typeof payload.due === 'string' ? payload.due : '',
-      status: typeof payload.status === 'string' ? payload.status : 'NEEDS-ACTION',
+      status: typeof payload.status === 'string' ? payload.status : 'TODO',
       priority: Number(payload.priority ?? 0),
       owner: typeof payload.owner === 'string' ? payload.owner : '',
       projectId: typeof payload.projectId === 'string' ? payload.projectId : null,
+      parentId: typeof payload.parentId === 'string' && payload.parentId !== '' ? payload.parentId : null,
+      waitingOn: typeof payload.waitingOn === 'string' ? payload.waitingOn : '',
       messageKey: typeof payload.messageKey === 'string' ? payload.messageKey : '',
       messageSubject: typeof payload.messageSubject === 'string' ? payload.messageSubject : '',
     })
@@ -979,6 +981,10 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       ...(payload.projectId === null || typeof payload.projectId === 'string'
         ? { projectId: payload.projectId }
         : {}),
+      ...(payload.parentId === null || typeof payload.parentId === 'string'
+        ? { parentId: payload.parentId }
+        : {}),
+      ...(typeof payload.waitingOn === 'string' ? { waitingOn: payload.waitingOn } : {}),
     })
     return { task: taskView(task) }
   })
@@ -1035,13 +1041,15 @@ function buildRouter(runtime: MailHarborRuntime): Router {
   })
 
   router.get('/projects', () => {
-    const counts = new Map<string, { total: number; done: number }>()
+    const counts = new Map<string, { total: number; todo: number; waiting: number; done: number }>()
     for (const account of runtime.current.accounts) {
       for (const task of runtime.tasks().list({ accountId: account.id })) {
         const projectId = task.projectId ?? ''
         if (projectId === '') continue
-        const entry = counts.get(projectId) ?? { total: 0, done: 0 }
+        const entry = counts.get(projectId) ?? { total: 0, todo: 0, waiting: 0, done: 0 }
         entry.total += 1
+        if (task.status === 'TODO' || task.status === 'IN-PROCESS') entry.todo += 1
+        if (task.status === 'WAITING') entry.waiting += 1
         if (task.status === 'COMPLETED') entry.done += 1
         counts.set(projectId, entry)
       }
@@ -1052,7 +1060,13 @@ function buildRouter(runtime: MailHarborRuntime): Router {
         .list()
         .map((project) => {
           const stat = counts.get(project.id)
-          return { ...projectView(project), taskTotal: stat?.total ?? 0, taskDone: stat?.done ?? 0 }
+          return {
+            ...projectView(project),
+            taskTotal: stat?.total ?? 0,
+            taskTodo: stat?.todo ?? 0,
+            taskWaiting: stat?.waiting ?? 0,
+            taskDone: stat?.done ?? 0,
+          }
         }),
     }
   })
@@ -1111,11 +1125,94 @@ function buildRouter(runtime: MailHarborRuntime): Router {
 
   router.patch('/projects/:id', async ({ params, body }) => {
     const payload = await body()
-    const name = String(payload.name ?? '').trim()
-    if (name === '') throw new HttpError(400, '项目名称不能为空')
-    const project = runtime.projects().update(String(params.id ?? ''), { name })
+    const patch: Record<string, unknown> = {}
+    if (typeof payload.name === 'string') {
+      const name = payload.name.trim()
+      if (name === '') throw new HttpError(400, '项目名称不能为空')
+      patch.name = name
+    }
+    if (typeof payload.status === 'string') {
+      const allowed = ['active', 'paused', 'done', 'archived']
+      if (!allowed.includes(payload.status)) throw new HttpError(400, '项目状态不正确')
+      patch.status = payload.status
+    }
+    const project = runtime.projects().update(String(params.id ?? ''), patch)
     if (project === undefined) throw new HttpError(404, '项目不存在')
     return { project: projectView(project) }
+  })
+
+  router.post('/projects/:id/notes', async ({ params, body }) => {
+    const payload = await body()
+    const project = runtime.projects().get(String(params.id ?? ''))
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    const text = String(payload.body ?? '').trim()
+    if (text === '') throw new HttpError(400, '记录内容不能为空')
+    const createdAt =
+      typeof payload.createdAt === 'string' && payload.createdAt !== ''
+        ? payload.createdAt
+        : new Date().toISOString()
+    const updated = runtime.projects().addNote(project.id, text, createdAt)
+    return { project: updated === undefined ? null : projectView(updated) }
+  })
+
+  router.patch('/projects/:id/notes/:noteId', async ({ params, body }) => {
+    const payload = await body()
+    const project = runtime.projects().get(String(params.id ?? ''))
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    const text = String(payload.body ?? '').trim()
+    if (text === '') throw new HttpError(400, '记录内容不能为空')
+    const createdAt =
+      typeof payload.createdAt === 'string' && payload.createdAt !== ''
+        ? payload.createdAt
+        : new Date().toISOString()
+    const updated = runtime.projects().updateNote(project.id, String(params.noteId ?? ''), text, createdAt)
+    if (updated === undefined) throw new HttpError(404, '记录不存在')
+    return { project: projectView(updated) }
+  })
+
+  router.delete('/projects/:id/notes/:noteId', ({ params }) => {
+    const project = runtime.projects().removeNote(String(params.id ?? ''), String(params.noteId ?? ''))
+    if (project === undefined) throw new HttpError(404, '记录不存在')
+    return { project: projectView(project) }
+  })
+
+  router.post('/projects/:id/notes/convert', async ({ params, body }) => {
+    const payload = await body()
+    const project = runtime.projects().get(String(params.id ?? ''))
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    const noteIds = Array.isArray(payload.noteIds)
+      ? payload.noteIds.filter((id): id is string => typeof id === 'string')
+      : []
+    if (noteIds.length === 0) throw new HttpError(400, '请选择要转换的记录')
+    const accountId =
+      typeof payload.accountId === 'string' && payload.accountId !== ''
+        ? payload.accountId
+        : (project.accountIds[0] ?? '')
+    if (accountId === '') throw new HttpError(400, '项目没有关联账号')
+    const created: Task[] = []
+    for (const noteId of noteIds) {
+      const note = project.notes.find((item) => item.id === noteId)
+      if (note === undefined) continue
+      const first =
+        note.body
+          .split('\n')
+          .map((line) => line.trim())
+          .find((line) => line !== '') ?? '项目记录'
+      const title = first.replace(/^#+\s*/, '').slice(0, 120)
+      const task = runtime.tasks().create({
+        accountId,
+        title,
+        notes: `来自项目记录 ${note.createdAt.slice(0, 10)}\n\n${note.body}`,
+        status: 'TODO',
+        projectId: project.id,
+      })
+      runtime.projects().linkNoteTasks(project.id, note.id, [task.id])
+      created.push(taskView(task))
+    }
+    return {
+      tasks: created,
+      project: projectView(runtime.projects().get(project.id) ?? project),
+    }
   })
 
   router.delete('/projects/:id', async ({ params, url }) => {
@@ -1412,10 +1509,12 @@ function taskView(task: TaskRecord): Task {
     id: task.id,
     accountId: task.accountId,
     projectId: task.projectId,
+    parentId: task.parentId,
     title: task.title,
     notes: task.notes,
     due: task.due,
     status: task.status as Task['status'],
+    waitingOn: task.waitingOn,
     priority: task.priority,
     owner: task.owner,
     messageKey: task.messageKey,
@@ -1431,9 +1530,13 @@ function projectView(project: ProjectRecord): Project {
   return {
     id: project.id,
     name: project.name,
+    status: project.status,
+    notes: project.notes.map((note) => ({ ...note, taskIds: [...note.taskIds] })),
+    milestones: project.milestones.map((milestone) => ({ ...milestone })),
     path: project.path,
     workspaceId: project.workspaceId,
     sessionId: project.sessionId,
+    sessionIds: [...project.sessionIds],
     accountIds: [...project.accountIds],
     messages: project.messages.map((message) => ({ ...message })),
     threads: project.threads.map((thread) => ({ ...thread })),
