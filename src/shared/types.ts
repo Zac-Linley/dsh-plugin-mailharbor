@@ -305,12 +305,19 @@ export interface ProjectMilestone {
   done: boolean
 }
 
+export interface ProjectActivity {
+  id: string
+  at: string
+  text: string
+}
+
 export interface Project {
   id: string
   name: string
   status: ProjectStatus
   notes: ProjectNote[]
   milestones: ProjectMilestone[]
+  activity: ProjectActivity[]
   path: string
   workspaceId: string
   sessionId: string

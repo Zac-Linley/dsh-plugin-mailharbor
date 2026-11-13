@@ -358,6 +358,39 @@ export function TasksPanel(): ReactNode {
       ),
       h(
         'div',
+        { className: 'tasks-projects' },
+        h(
+          'button',
+          {
+            className: projectFilter === '' ? 'chip active' : 'chip',
+            onClick: () => setProjectFilter(''),
+          },
+          '全部项目',
+        ),
+        projects
+          .map((project) => ({
+            project,
+            count: tasks.filter(
+              (task) =>
+                task.projectId === project.id && task.status !== 'COMPLETED' && task.status !== 'CANCELLED',
+            ).length,
+          }))
+          .filter((item) => item.count > 0)
+          .map((item) =>
+            h(
+              'button',
+              {
+                key: item.project.id,
+                className: projectFilter === item.project.id ? 'chip active' : 'chip',
+                onClick: () => setProjectFilter(item.project.id),
+              },
+              item.project.name,
+              h('span', { className: 'chip-count' }, String(item.count)),
+            ),
+          ),
+      ),
+      h(
+        'div',
         { className: 'tasks-board' },
         COLUMNS.map((column) => {
           const cards = tasks

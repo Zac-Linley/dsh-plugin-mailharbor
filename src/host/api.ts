@@ -1138,7 +1138,63 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     }
     const project = runtime.projects().update(String(params.id ?? ''), patch)
     if (project === undefined) throw new HttpError(404, '项目不存在')
-    return { project: projectView(project) }
+    if (typeof patch.status === 'string') {
+      const labels: Record<string, string> = {
+        active: '进行中',
+        paused: '暂停',
+        done: '已完成',
+        archived: '已归档',
+      }
+      runtime.projects().addActivity(project.id, `项目状态改为「${labels[patch.status] ?? patch.status}」`)
+    }
+    return { project: projectView(runtime.projects().get(project.id) ?? project) }
+  })
+
+  router.post('/projects/:id/milestones', async ({ params, body }) => {
+    const payload = await body()
+    const project = runtime.projects().get(String(params.id ?? ''))
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    const title = String(payload.title ?? '').trim()
+    if (title === '') throw new HttpError(400, '里程碑名称不能为空')
+    const updated = runtime
+      .projects()
+      .addMilestone(project.id, title, typeof payload.due === 'string' ? payload.due : '')
+    if (updated === undefined) throw new HttpError(404, '项目不存在')
+    runtime.projects().addActivity(project.id, `新增里程碑「${title}」`)
+    return { project: projectView(runtime.projects().get(project.id) ?? updated) }
+  })
+
+  router.patch('/projects/:id/milestones/:milestoneId', async ({ params, body }) => {
+    const payload = await body()
+    const project = runtime.projects().get(String(params.id ?? ''))
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    const milestone = project.milestones.find((item) => item.id === String(params.milestoneId ?? ''))
+    if (milestone === undefined) throw new HttpError(404, '里程碑不存在')
+    const patch: { title?: string; due?: string; done?: boolean } = {}
+    if (typeof payload.title === 'string') patch.title = payload.title.trim()
+    if (typeof payload.due === 'string') patch.due = payload.due
+    if (typeof payload.done === 'boolean') patch.done = payload.done
+    const updated = runtime.projects().updateMilestone(project.id, milestone.id, patch)
+    if (updated === undefined) throw new HttpError(404, '里程碑不存在')
+    if (patch.done !== undefined) {
+      runtime
+        .projects()
+        .addActivity(
+          project.id,
+          `里程碑「${patch.title ?? milestone.title}」${patch.done ? '已完成' : '重新打开'}`,
+        )
+    }
+    return { project: projectView(runtime.projects().get(project.id) ?? updated) }
+  })
+
+  router.delete('/projects/:id/milestones/:milestoneId', ({ params }) => {
+    const project = runtime.projects().get(String(params.id ?? ''))
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    const milestone = project.milestones.find((item) => item.id === String(params.milestoneId ?? ''))
+    const updated = runtime.projects().removeMilestone(project.id, String(params.milestoneId ?? ''))
+    if (updated === undefined) throw new HttpError(404, '里程碑不存在')
+    runtime.projects().addActivity(project.id, `删除里程碑「${milestone?.title ?? ''}」`)
+    return { project: projectView(runtime.projects().get(project.id) ?? updated) }
   })
 
   router.post('/projects/:id/notes', async ({ params, body }) => {
@@ -1152,7 +1208,10 @@ function buildRouter(runtime: MailHarborRuntime): Router {
         ? payload.createdAt
         : new Date().toISOString()
     const updated = runtime.projects().addNote(project.id, text, createdAt)
-    return { project: updated === undefined ? null : projectView(updated) }
+    runtime.projects().addActivity(project.id, '新增一条项目记录')
+    return {
+      project: updated === undefined ? null : projectView(runtime.projects().get(project.id) ?? updated),
+    }
   })
 
   router.patch('/projects/:id/notes/:noteId', async ({ params, body }) => {
@@ -1209,6 +1268,7 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       runtime.projects().linkNoteTasks(project.id, note.id, [task.id])
       created.push(taskView(task))
     }
+    runtime.projects().addActivity(project.id, `将 ${String(created.length)} 条记录转为任务`)
     return {
       tasks: created,
       project: projectView(runtime.projects().get(project.id) ?? project),
@@ -1533,6 +1593,7 @@ function projectView(project: ProjectRecord): Project {
     status: project.status,
     notes: project.notes.map((note) => ({ ...note, taskIds: [...note.taskIds] })),
     milestones: project.milestones.map((milestone) => ({ ...milestone })),
+    activity: project.activity.map((event) => ({ ...event })),
     path: project.path,
     workspaceId: project.workspaceId,
     sessionId: project.sessionId,

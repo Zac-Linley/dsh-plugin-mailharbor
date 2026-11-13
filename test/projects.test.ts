@@ -56,6 +56,7 @@ describe('createProject', () => {
       status: 'active',
       notes: [],
       milestones: [],
+      activity: [],
       path: join(dir, 'p'),
       workspaceId: '',
       sessionId: '',

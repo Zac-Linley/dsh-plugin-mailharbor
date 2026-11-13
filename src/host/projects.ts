@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DshSessions, DshWorkspaceRegistry } from './dsh.js'
-import type { ProjectMilestone, ProjectNote, ProjectStatus } from '../shared/types.js'
+import type { ProjectActivity, ProjectMilestone, ProjectNote, ProjectStatus } from '../shared/types.js'
 
 export interface ProjectMessage {
   accountId: string
@@ -22,6 +22,7 @@ export interface ProjectRecord {
   status: ProjectStatus
   notes: ProjectNote[]
   milestones: ProjectMilestone[]
+  activity: ProjectActivity[]
   path: string
   workspaceId: string
   sessionId: string
@@ -66,6 +67,7 @@ export class ProjectStore {
         status: project.status ?? 'active',
         notes: Array.isArray(project.notes) ? project.notes : [],
         milestones: Array.isArray(project.milestones) ? project.milestones : [],
+        activity: Array.isArray(project.activity) ? project.activity : [],
         sessionIds: Array.isArray(project.sessionIds)
           ? project.sessionIds
           : project.sessionId === ''
@@ -181,6 +183,55 @@ export class ProjectStore {
     return project
   }
 
+  addMilestone(id: string, title: string, due: string): ProjectRecord | undefined {
+    const project = this.get(id)
+    if (project === undefined) return undefined
+    project.milestones.push({
+      id: `ms_${randomUUID().slice(0, 8)}`,
+      title,
+      due,
+      done: false,
+    })
+    project.updatedAt = new Date().toISOString()
+    this.flush()
+    return project
+  }
+
+  updateMilestone(
+    id: string,
+    milestoneId: string,
+    patch: { title?: string; due?: string; done?: boolean },
+  ): ProjectRecord | undefined {
+    const project = this.get(id)
+    const milestone = project?.milestones.find((item) => item.id === milestoneId)
+    if (project === undefined || milestone === undefined) return undefined
+    if (patch.title !== undefined) milestone.title = patch.title
+    if (patch.due !== undefined) milestone.due = patch.due
+    if (patch.done !== undefined) milestone.done = patch.done
+    project.updatedAt = new Date().toISOString()
+    this.flush()
+    return project
+  }
+
+  removeMilestone(id: string, milestoneId: string): ProjectRecord | undefined {
+    const project = this.get(id)
+    if (project === undefined) return undefined
+    project.milestones = project.milestones.filter((item) => item.id !== milestoneId)
+    project.updatedAt = new Date().toISOString()
+    this.flush()
+    return project
+  }
+
+  addActivity(id: string, text: string, at = new Date().toISOString()): ProjectRecord | undefined {
+    const project = this.get(id)
+    if (project === undefined) return undefined
+    project.activity.unshift({ id: `act_${randomUUID().slice(0, 8)}`, at, text })
+    if (project.activity.length > 100) project.activity.length = 100
+    project.updatedAt = at
+    this.flush()
+    return project
+  }
+
   remove(id: string): boolean {
     const data = this.load()
     const index = data.projects.findIndex((project) => project.id === id)
@@ -289,6 +340,7 @@ export async function createProject(options: {
     status: 'active',
     notes: [],
     milestones: [],
+    activity: [],
     path,
     workspaceId,
     sessionId,

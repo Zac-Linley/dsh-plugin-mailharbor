@@ -451,6 +451,28 @@ export const api = {
       body: JSON.stringify(patch),
     }),
 
+  addMilestone: (projectId: string, title: string, due = '') =>
+    request<{ project: Project }>(`projects/${encodeURIComponent(projectId)}/milestones`, {
+      method: 'POST',
+      body: JSON.stringify({ title, due }),
+    }),
+
+  updateMilestone: (
+    projectId: string,
+    milestoneId: string,
+    patch: { title?: string; due?: string; done?: boolean },
+  ) =>
+    request<{ project: Project }>(
+      `projects/${encodeURIComponent(projectId)}/milestones/${encodeURIComponent(milestoneId)}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    ),
+
+  deleteMilestone: (projectId: string, milestoneId: string) =>
+    request<{ project: Project }>(
+      `projects/${encodeURIComponent(projectId)}/milestones/${encodeURIComponent(milestoneId)}`,
+      { method: 'DELETE' },
+    ),
+
   addProjectNote: (id: string, body: string, createdAt?: string) =>
     request<{ project: Project }>(`projects/${encodeURIComponent(id)}/notes`, {
       method: 'POST',
