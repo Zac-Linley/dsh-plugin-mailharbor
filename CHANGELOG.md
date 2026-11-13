@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.24.0
+
+### Minor Changes
+
+- 4af7c1f: Optional milestones, project activity and project summaries.
+
+  - Project detail gains 里程碑 (add title/date, toggle done, delete) and 活动 tabs;
+    milestones never feed a progress calculation.
+  - Activity records status changes, notes, conversions and milestones (last 100).
+  - The task board shows project chips with open-task counts for quick filtering.
+
 ## 0.23.0
 
 ### Minor Changes
