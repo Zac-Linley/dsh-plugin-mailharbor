@@ -3535,3 +3535,37 @@
   gap: 6px;
   padding: 0 18px 10px;
 }
+
+.project-notes-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.project-proposals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project-proposal {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--m-line-soft);
+  border-radius: 8px;
+  background: var(--m-bg-1);
+}
+
+.project-proposal input {
+  margin-top: 2px;
+}
+
+.project-proposal > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+}

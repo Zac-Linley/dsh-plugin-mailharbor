@@ -1,5 +1,5 @@
 import { createElement as h, useEffect, useState, type ReactNode } from 'react'
-import type { Project, ProjectStatus, Task } from '../shared/types.js'
+import type { Project, ProjectStatus, Task, TaskSuggestion } from '../shared/types.js'
 import { api, ApiError } from './api.js'
 import { ErrorBar, Modal } from './components.js'
 
@@ -62,6 +62,10 @@ export function ProjectDetail({
   const [waitingEdit, setWaitingEdit] = useState<{ id: string; value: string } | null>(null)
   const [milestoneTitle, setMilestoneTitle] = useState('')
   const [milestoneDue, setMilestoneDue] = useState('')
+  const [proposals, setProposals] = useState<TaskSuggestion[] | null>(null)
+  const [proposalSelected, setProposalSelected] = useState<number[]>([])
+  const [proposing, setProposing] = useState(false)
+  const [sessionNote, setSessionNote] = useState('')
 
   const apply = (next: Project): void => {
     setCurrent(next)
@@ -220,6 +224,68 @@ export function ProjectDetail({
     }
   }
 
+  const proposeTasks = async (): Promise<void> => {
+    if (current.notes.length === 0) {
+      setError('先添加至少一条项目记录，再让 AI 提议任务')
+      return
+    }
+    setProposing(true)
+    setError('')
+    try {
+      const noteIds = selected.length > 0 ? selected : current.notes.slice(0, 20).map((note) => note.id)
+      const result = await api.proposeProjectTasks(current.id, noteIds)
+      setProposals(result.suggestions)
+      setProposalSelected(result.suggestions.map((_item, index) => index))
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setProposing(false)
+    }
+  }
+
+  const createProposals = async (): Promise<void> => {
+    if (proposals === null) return
+    const accountId = current.accountIds[0]
+    if (accountId === undefined) return
+    setBusy(true)
+    try {
+      for (const index of proposalSelected) {
+        const item = proposals[index]
+        if (item === undefined) continue
+        await api.createTask({
+          accountId,
+          projectId: current.id,
+          title: item.title,
+          notes: item.notes,
+          due: item.due,
+          priority: item.priority,
+          owner: item.owner,
+          status: 'TODO',
+        })
+      }
+      setProposals(null)
+      await loadTasks()
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const createSession = async (): Promise<void> => {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api.createProjectSession(current.id)
+      apply(result.project)
+      setSessionNote(`会话已创建：${result.sessionId.slice(0, 8)}…`)
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const rootTasks = tasks.filter((task) => task.parentId === null)
   const childOf = (id: string): Task[] => tasks.filter((task) => task.parentId === id)
   const selectedNotes = current.notes.filter((note) => selected.includes(note.id))
@@ -266,6 +332,16 @@ export function ProjectDetail({
           h('option', { key: status, value: status }, STATUS_LABEL[status]),
         ),
       ),
+      h(
+        'button',
+        {
+          className: 'ghost small',
+          disabled: busy,
+          onClick: () => void createSession(),
+        },
+        '创建会话',
+      ),
+      sessionNote === '' ? null : h('span', { className: 'small muted' }, sessionNote),
       h(
         'div',
         { className: 'project-detail-tabs' },
@@ -365,6 +441,21 @@ export function ProjectDetail({
           ? h(
               'div',
               { className: 'project-notes' },
+              h(
+                'div',
+                { className: 'project-notes-toolbar' },
+                h('span', { className: 'small muted' }, 'AI 会根据记录和未完成任务提议，确认后才创建'),
+                h('span', { className: 'spacer' }),
+                h(
+                  'button',
+                  {
+                    className: 'ghost small',
+                    disabled: proposing || busy,
+                    onClick: () => void proposeTasks(),
+                  },
+                  proposing ? 'AI 提议中…' : 'AI 提议任务',
+                ),
+              ),
               h(
                 'div',
                 { className: 'project-note-compose' },
@@ -601,6 +692,64 @@ export function ProjectDetail({
                     ),
                   ),
             ),
+    proposals === null
+      ? null
+      : h(
+          Modal,
+          {
+            title: 'AI 提议的任务',
+            wide: true,
+            onClose: () => setProposals(null),
+            footer: h(
+              'div',
+              { className: 'project-detail-foot' },
+              h('span', { className: 'small muted' }, `已选 ${String(proposalSelected.length)} 个`),
+              h('span', { className: 'spacer' }),
+              h('button', { className: 'ghost', onClick: () => setProposals(null) }, '取消'),
+              h(
+                'button',
+                {
+                  className: 'primary',
+                  disabled: busy || proposalSelected.length === 0,
+                  onClick: () => void createProposals(),
+                },
+                '创建选中任务',
+              ),
+            ),
+          },
+          proposals.length === 0
+            ? h('p', { className: 'small muted' }, 'AI 没有找到需要新增的任务。')
+            : h(
+                'div',
+                { className: 'project-proposals' },
+                proposals.map((item, index) =>
+                  h(
+                    'label',
+                    { key: `${item.title}-${String(index)}`, className: 'project-proposal' },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: proposalSelected.includes(index),
+                      onChange: (event: { target: { checked: boolean } }) =>
+                        setProposalSelected((ids) =>
+                          event.target.checked ? [...ids, index] : ids.filter((id) => id !== index),
+                        ),
+                    }),
+                    h(
+                      'span',
+                      null,
+                      h('strong', null, item.title),
+                      item.due === '' && item.notes === ''
+                        ? null
+                        : h(
+                            'span',
+                            { className: 'small muted' },
+                            [item.due, item.notes].filter((part) => part !== '').join(' · '),
+                          ),
+                    ),
+                  ),
+                ),
+              ),
+        ),
     confirmConvert
       ? h(
           Modal,

@@ -1013,6 +1013,39 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     }
   })
 
+  router.post('/ai/propose/tasks', async ({ body }) => {
+    const payload = await body()
+    const account = accountFromPayload(runtime, payload)
+    const projectId = typeof payload.projectId === 'string' ? payload.projectId : ''
+    const project = projectId === '' ? undefined : runtime.projects().get(projectId)
+    if (projectId !== '' && project === undefined) throw new HttpError(404, '项目不存在')
+    const notes = Array.isArray(payload.noteIds)
+      ? (payload.noteIds as string[])
+          .map((id) => project?.notes.find((note) => note.id === id))
+          .filter((note): note is NonNullable<typeof note> => note !== undefined)
+      : (project?.notes.slice(0, 30) ?? [])
+    const text = typeof payload.text === 'string' ? payload.text : ''
+    if (notes.length === 0 && text.trim() === '') throw new HttpError(400, '没有可分析的记录')
+    const tasks =
+      project === undefined ? [] : runtime.tasks().list({ accountId: account.id, projectId: project.id })
+    const context = [
+      project === undefined ? '' : `项目：${project.name}（${project.status}）`,
+      notes.length === 0
+        ? ''
+        : `项目记录：\n${notes.map((note) => `- ${note.createdAt.slice(0, 10)} ${note.body}`).join('\n')}`,
+      tasks.length === 0 ? '' : `已有任务：\n${tasks.map((task) => `- ${task.title}`).join('\n')}`,
+      text.trim() === '' ? '' : `补充内容：\n${text}`,
+    ]
+      .filter((line) => line !== '')
+      .join('\n\n')
+    try {
+      const suggestions = await runtime.ai().proposeProjectTasks(context)
+      return { suggestions }
+    } catch (error) {
+      throw aiHttpError(error)
+    }
+  })
+
   // ---- projects ----
 
   router.post('/projects/:id/attachment', async ({ params, body }) => {
@@ -1195,6 +1228,50 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     if (updated === undefined) throw new HttpError(404, '里程碑不存在')
     runtime.projects().addActivity(project.id, `删除里程碑「${milestone?.title ?? ''}」`)
     return { project: projectView(runtime.projects().get(project.id) ?? updated) }
+  })
+
+  router.post('/projects/:id/session', async ({ params, body }) => {
+    const payload = await body()
+    const project = runtime.projects().get(String(params.id ?? ''))
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    if (runtime.sessions === undefined) throw new HttpError(400, '当前 DSH 组合没有会话服务')
+    const purpose = typeof payload.purpose === 'string' ? payload.purpose : ''
+    const sessionId = randomUUID()
+    const session = runtime.sessions.create(sessionId, { meta: { cwd: project.path } })
+    const notes = project.notes
+      .slice(0, 20)
+      .map((note) => `- ${note.createdAt.slice(0, 10)} ${note.body}`)
+      .join('\n')
+    const accountId = project.accountIds[0]
+    const tasks =
+      accountId === undefined
+        ? []
+        : runtime
+            .tasks()
+            .list({ accountId, projectId: project.id })
+            .filter((task) => task.status !== 'COMPLETED' && task.status !== 'CANCELLED')
+            .map(
+              (task) =>
+                `- [${task.status}] ${task.title}${task.waitingOn === '' ? '' : `（等待：${task.waitingOn}）`}`,
+            )
+            .join('\n')
+    const context = [
+      `项目：${project.name}（${project.status}）`,
+      purpose === '' ? '' : `这次会话的目的：${purpose}`,
+      notes === '' ? '' : `最近记录：\n${notes}`,
+      tasks === '' ? '' : `未完成任务：\n${tasks}`,
+      '请基于以上上下文协助整理资料或处理文件；需要创建任务时先给出提议，等我确认。',
+    ]
+      .filter((line) => line !== '')
+      .join('\n\n')
+    session.append(
+      'user/message',
+      { role: 'user', content: [{ type: 'text', text: context }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
+    runtime.projects().update(project.id, { sessionIds: [...project.sessionIds, sessionId] })
+    runtime.projects().addActivity(project.id, '创建项目会话')
+    return { sessionId, project: projectView(runtime.projects().get(project.id) ?? project) }
   })
 
   router.post('/projects/:id/notes', async ({ params, body }) => {

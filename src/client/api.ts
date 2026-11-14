@@ -473,6 +473,18 @@ export const api = {
       { method: 'DELETE' },
     ),
 
+  proposeProjectTasks: (projectId: string, noteIds?: string[]) =>
+    request<{ suggestions: TaskSuggestion[] }>('ai/propose/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ projectId, ...(noteIds === undefined ? {} : { noteIds }) }),
+    }),
+
+  createProjectSession: (projectId: string, purpose = '') =>
+    request<{ sessionId: string; project: Project }>(`projects/${encodeURIComponent(projectId)}/session`, {
+      method: 'POST',
+      body: JSON.stringify({ purpose }),
+    }),
+
   addProjectNote: (id: string, body: string, createdAt?: string) =>
     request<{ project: Project }>(`projects/${encodeURIComponent(id)}/notes`, {
       method: 'POST',
