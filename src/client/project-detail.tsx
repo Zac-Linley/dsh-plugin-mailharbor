@@ -66,6 +66,7 @@ export function ProjectDetail({
   const [proposalSelected, setProposalSelected] = useState<number[]>([])
   const [proposing, setProposing] = useState(false)
   const [sessionNote, setSessionNote] = useState('')
+  const [activityQuery, setActivityQuery] = useState('')
 
   const apply = (next: Project): void => {
     setCurrent(next)
@@ -286,6 +287,36 @@ export function ProjectDetail({
     }
   }
 
+  const exportProject = (): void => {
+    const statusLabel = STATUS_LABEL[current.status]
+    const lines = [
+      `# ${current.name}`,
+      `状态：${statusLabel}`,
+      '',
+      '## 记录',
+      ...current.notes.map((note) => `- ${note.createdAt.slice(0, 10)} ${note.body.replaceAll('\n', ' / ')}`),
+      '',
+      '## 里程碑',
+      ...current.milestones.map(
+        (milestone) =>
+          `- [${milestone.done ? 'x' : ' '}] ${milestone.title}${milestone.due === '' ? '' : `（${milestone.due}）`}`,
+      ),
+      '',
+      '## 任务',
+      ...tasks.map(
+        (task) =>
+          `- [${TASK_STATUS.find((item) => item.value === task.status)?.label ?? task.status}] ${task.title}${task.waitingOn === '' ? '' : `（等待：${task.waitingOn}）`}`,
+      ),
+    ]
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${current.name}.md`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
   const rootTasks = tasks.filter((task) => task.parentId === null)
   const childOf = (id: string): Task[] => tasks.filter((task) => task.parentId === id)
   const selectedNotes = current.notes.filter((note) => selected.includes(note.id))
@@ -341,6 +372,7 @@ export function ProjectDetail({
         },
         '创建会话',
       ),
+      h('button', { className: 'ghost small', onClick: exportProject }, '导出'),
       sessionNote === '' ? null : h('span', { className: 'small muted' }, sessionNote),
       h(
         'div',
@@ -426,16 +458,25 @@ export function ProjectDetail({
         ? h(
             'div',
             { className: 'project-activity' },
-            current.activity.length === 0
-              ? h('p', { className: 'small muted' }, '还没有活动记录。')
-              : current.activity.map((event) =>
-                  h(
-                    'div',
-                    { key: event.id, className: 'project-activity-row' },
-                    h('span', { className: 'small muted' }, new Date(event.at).toLocaleString()),
-                    h('span', null, event.text),
+            h('input', {
+              value: activityQuery,
+              placeholder: '筛选活动…',
+              'aria-label': '筛选活动',
+              onChange: (event: { target: { value: string } }) => setActivityQuery(event.target.value),
+            }),
+            current.activity.filter((event) => event.text.toLowerCase().includes(activityQuery.toLowerCase()))
+              .length === 0
+              ? h('p', { className: 'small muted' }, '没有匹配的活动。')
+              : current.activity
+                  .filter((event) => event.text.toLowerCase().includes(activityQuery.toLowerCase()))
+                  .map((event) =>
+                    h(
+                      'div',
+                      { key: event.id, className: 'project-activity-row' },
+                      h('span', { className: 'small muted' }, new Date(event.at).toLocaleString()),
+                      h('span', null, event.text),
+                    ),
                   ),
-                ),
           )
         : tab === 'notes'
           ? h(

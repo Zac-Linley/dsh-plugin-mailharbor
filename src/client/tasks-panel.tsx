@@ -356,6 +356,27 @@ export function TasksPanel(): ReactNode {
         ),
         h('span', { className: 'small muted' }, '拖动卡片可改变状态'),
       ),
+      (() => {
+        const today = dateKey(new Date())
+        const overdue = tasks.filter(
+          (task) =>
+            task.due !== '' &&
+            task.due.slice(0, 10) < today &&
+            task.status !== 'COMPLETED' &&
+            task.status !== 'CANCELLED',
+        ).length
+        const dueToday = tasks.filter(
+          (task) =>
+            task.due.slice(0, 10) === today && task.status !== 'COMPLETED' && task.status !== 'CANCELLED',
+        ).length
+        if (overdue === 0 && dueToday === 0) return null
+        return h(
+          'div',
+          { className: 'tasks-reminder' },
+          h(Icon, { name: 'checklist', size: 13 }),
+          `今天 ${String(dueToday)} 项 · 逾期 ${String(overdue)} 项`,
+        )
+      })(),
       h(
         'div',
         { className: 'tasks-projects' },
