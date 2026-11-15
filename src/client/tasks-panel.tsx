@@ -609,7 +609,9 @@ export function TasksPanel(): ReactNode {
             'div',
             { className: 'project-drawer-list' },
             projects
-              .filter((project) => drawerStatus === 'all' || project.status === drawerStatus)
+              .filter((project) =>
+                drawerStatus === 'all' ? project.status !== 'archived' : project.status === drawerStatus,
+              )
               .filter((project) => {
                 const needle = drawerQuery.trim().toLowerCase()
                 if (needle === '') return true
@@ -893,6 +895,7 @@ function TaskEditor({
         }),
   })
   const [sourceError, setSourceError] = useState('')
+  const [picking, setPicking] = useState(false)
   const set = (patch: Partial<typeof draft>): void => setDraft((current) => ({ ...current, ...patch }))
 
   const openSource = (): void => {
@@ -1007,13 +1010,15 @@ function TaskEditor({
           h(PriorityPicker, { value: draft.priority, onChange: (next) => set({ priority: next }) }),
           h('label', { className: 'task-label' }, '项目'),
           h(
-            'select',
+            'button',
             {
-              value: draft.projectId,
-              onChange: (event: { target: { value: string } }) => set({ projectId: event.target.value }),
+              className: 'ghost project-pick-button',
+              onClick: () => setPicking(true),
             },
-            h('option', { value: '' }, '无项目'),
-            projects.map((project) => h('option', { key: project.id, value: project.id }, project.name)),
+            draft.projectId === ''
+              ? '选择项目…'
+              : (projects.find((project) => project.id === draft.projectId)?.name ?? '选择项目…'),
+            h(Icon, { name: 'chevronRight', size: 12 }),
           ),
           h('label', { className: 'task-label' }, '这个事联系谁'),
           h('input', {
@@ -1021,6 +1026,77 @@ function TaskEditor({
             placeholder: '姓名或邮箱，可留空',
             onChange: (event: { target: { value: string } }) => set({ owner: event.target.value }),
           }),
+        ),
+      ),
+      picking
+        ? h(ProjectPicker, {
+            projects,
+            value: draft.projectId,
+            onSelect: (projectId) => {
+              set({ projectId })
+              setPicking(false)
+            },
+            onClose: () => setPicking(false),
+          })
+        : null,
+    ),
+  )
+}
+
+function ProjectPicker({
+  projects,
+  value,
+  onSelect,
+  onClose,
+}: {
+  projects: Project[]
+  value: string
+  onSelect: (projectId: string) => void
+  onClose: () => void
+}): ReactNode {
+  const [query, setQuery] = useState('')
+  const filtered = projects
+    .filter((project) => {
+      const needle = query.trim().toLowerCase()
+      if (needle === '') return project.status !== 'archived'
+      return `${project.name} ${project.tags.join(' ')}`.toLowerCase().includes(needle)
+    })
+    .sort((left, right) => {
+      if (left.pinned !== right.pinned) return left.pinned ? -1 : 1
+      return (right.lastOpenedAt || right.updatedAt).localeCompare(left.lastOpenedAt || left.updatedAt)
+    })
+  return h(
+    Modal,
+    { title: '选择项目', onClose },
+    h('input', {
+      type: 'search',
+      autoFocus: true,
+      value: query,
+      placeholder: '搜索项目、标签…',
+      onChange: (event: { target: { value: string } }) => setQuery(event.target.value),
+    }),
+    h(
+      'div',
+      { className: 'project-picker-list' },
+      h(
+        'button',
+        { className: 'project-picker-row', onClick: () => onSelect('') },
+        h('strong', null, '无项目'),
+      ),
+      filtered.map((project) =>
+        h(
+          'button',
+          {
+            key: project.id,
+            className: value === project.id ? 'project-picker-row active' : 'project-picker-row',
+            onClick: () => onSelect(project.id),
+          },
+          h('strong', null, project.name),
+          h(
+            'span',
+            { className: 'small muted' },
+            `${project.status === 'active' ? '进行中' : project.status === 'paused' ? '暂停' : project.status === 'done' ? '已完成' : '已归档'}${project.tags.length === 0 ? '' : ` · ${project.tags.join(' · ')}`}`,
+          ),
         ),
       ),
     ),

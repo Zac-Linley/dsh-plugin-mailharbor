@@ -66,7 +66,13 @@ export function ProjectDetail({
   const [proposalSelected, setProposalSelected] = useState<number[]>([])
   const [proposing, setProposing] = useState(false)
   const [sessionNote, setSessionNote] = useState('')
+  const [tagText, setTagText] = useState(current.tags.join(', '))
   const [activityQuery, setActivityQuery] = useState('')
+
+  useEffect(() => {
+    setTagText(current.tags.join(', '))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current.id, current.tags.join('|')])
 
   const apply = (next: Project): void => {
     setCurrent(next)
@@ -363,6 +369,25 @@ export function ProjectDetail({
           h('option', { key: status, value: status }, STATUS_LABEL[status]),
         ),
       ),
+      h('input', {
+        className: 'project-tag-input',
+        value: tagText,
+        placeholder: '标签，逗号分隔',
+        'aria-label': '项目标签',
+        onChange: (event: { target: { value: string } }) => setTagText(event.target.value),
+        onBlur: () => {
+          const tags = tagText
+            .split(/[,，]/)
+            .map((tag) => tag.trim())
+            .filter((tag) => tag !== '')
+            .slice(0, 20)
+          if (tags.join('|') === current.tags.join('|')) return
+          void api
+            .updateProject(current.id, { tags })
+            .then((result) => apply(result.project))
+            .catch((caught: unknown) => setError(errorText(caught)))
+        },
+      }),
       h(
         'button',
         {
