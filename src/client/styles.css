@@ -3585,3 +3585,75 @@
 .project-activity > input {
   margin-bottom: 6px;
 }
+
+/* Project drawer (tasks panel) */
+.project-drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  border: 0;
+  background: rgba(0, 0, 0, 0.34);
+}
+
+.project-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(380px, 94%);
+  padding: 14px;
+  border-left: 1px solid var(--m-line);
+  background: var(--m-bg);
+  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.4);
+}
+
+.project-drawer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-drawer-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.project-drawer-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project-drawer-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--m-line-soft);
+  border-radius: 8px;
+  background: var(--m-bg-1);
+}
+
+.project-drawer-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 9px;
+  text-align: left;
+}
+
+.project-drawer-main strong {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -315,6 +315,9 @@ export interface Project {
   id: string
   name: string
   status: ProjectStatus
+  pinned: boolean
+  lastOpenedAt: string
+  tags: string[]
   notes: ProjectNote[]
   milestones: ProjectMilestone[]
   activity: ProjectActivity[]

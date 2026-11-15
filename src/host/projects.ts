@@ -20,6 +20,9 @@ export interface ProjectRecord {
   id: string
   name: string
   status: ProjectStatus
+  pinned: boolean
+  lastOpenedAt: string
+  tags: string[]
   notes: ProjectNote[]
   milestones: ProjectMilestone[]
   activity: ProjectActivity[]
@@ -65,6 +68,9 @@ export class ProjectStore {
       projects: projects.filter(isProject).map((project) => ({
         ...project,
         status: project.status ?? 'active',
+        pinned: project.pinned === true,
+        lastOpenedAt: project.lastOpenedAt ?? project.updatedAt,
+        tags: Array.isArray(project.tags) ? project.tags : [],
         notes: Array.isArray(project.notes) ? project.notes : [],
         milestones: Array.isArray(project.milestones) ? project.milestones : [],
         activity: Array.isArray(project.activity) ? project.activity : [],
@@ -338,6 +344,9 @@ export async function createProject(options: {
     id,
     name,
     status: 'active',
+    pinned: false,
+    lastOpenedAt: created,
+    tags: [],
     notes: [],
     milestones: [],
     activity: [],

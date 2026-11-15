@@ -1169,6 +1169,10 @@ function buildRouter(runtime: MailHarborRuntime): Router {
       if (!allowed.includes(payload.status)) throw new HttpError(400, '项目状态不正确')
       patch.status = payload.status
     }
+    if (typeof payload.pinned === 'boolean') patch.pinned = payload.pinned
+    if (Array.isArray(payload.tags)) {
+      patch.tags = payload.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 20)
+    }
     const project = runtime.projects().update(String(params.id ?? ''), patch)
     if (project === undefined) throw new HttpError(404, '项目不存在')
     if (typeof patch.status === 'string') {
@@ -1272,6 +1276,14 @@ function buildRouter(runtime: MailHarborRuntime): Router {
     runtime.projects().update(project.id, { sessionIds: [...project.sessionIds, sessionId] })
     runtime.projects().addActivity(project.id, '创建项目会话')
     return { sessionId, project: projectView(runtime.projects().get(project.id) ?? project) }
+  })
+
+  router.post('/projects/:id/touch', ({ params }) => {
+    const project = runtime.projects().update(String(params.id ?? ''), {
+      lastOpenedAt: new Date().toISOString(),
+    })
+    if (project === undefined) throw new HttpError(404, '项目不存在')
+    return { project: projectView(project) }
   })
 
   router.post('/projects/:id/notes', async ({ params, body }) => {
@@ -1668,6 +1680,9 @@ function projectView(project: ProjectRecord): Project {
     id: project.id,
     name: project.name,
     status: project.status,
+    pinned: project.pinned,
+    lastOpenedAt: project.lastOpenedAt,
+    tags: [...project.tags],
     notes: project.notes.map((note) => ({ ...note, taskIds: [...note.taskIds] })),
     milestones: project.milestones.map((milestone) => ({ ...milestone })),
     activity: project.activity.map((event) => ({ ...event })),

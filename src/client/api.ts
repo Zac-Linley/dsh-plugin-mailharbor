@@ -445,7 +445,10 @@ export const api = {
 
   pickDirectory: () => request<{ path: string | null }>('projects/pick-directory', { method: 'POST' }),
 
-  updateProject: (id: string, patch: { name?: string; status?: Project['status'] }) =>
+  updateProject: (
+    id: string,
+    patch: { name?: string; status?: Project['status']; pinned?: boolean; tags?: string[] },
+  ) =>
     request<{ project: Project }>(`projects/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
@@ -484,6 +487,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ purpose }),
     }),
+
+  touchProject: (id: string) =>
+    request<{ project: Project }>(`projects/${encodeURIComponent(id)}/touch`, { method: 'POST' }),
 
   addProjectNote: (id: string, body: string, createdAt?: string) =>
     request<{ project: Project }>(`projects/${encodeURIComponent(id)}/notes`, {
