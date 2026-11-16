@@ -143,6 +143,10 @@ export function TasksPanel(): ReactNode {
   const [drawerQuery, setDrawerQuery] = useState('')
   const [drawerStatus, setDrawerStatus] = useState<'all' | 'active' | 'paused' | 'archived'>('all')
   const [drawerProject, setDrawerProject] = useState<Project | null>(null)
+  const [drawerTag, setDrawerTag] = useState('')
+  const [newProjectOpen, setNewProjectOpen] = useState(false)
+  const [newProjectName, setNewProjectName] = useState('')
+  const [newProjectRoot, setNewProjectRoot] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [projectFilter, setProjectFilter] = useState('')
   const [error, setError] = useState('')
@@ -274,6 +278,29 @@ export function TasksPanel(): ReactNode {
       setEditing(null)
       setCreating(null)
       notify('任务已保存')
+      refresh()
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const createProject = async (): Promise<void> => {
+    const name = newProjectName.trim()
+    if (name === '' || accountId === null) return
+    setBusy(true)
+    try {
+      const result = await api.createProject({
+        accountId,
+        name,
+        root: newProjectRoot.trim() === '' ? (state?.settings.projects.root ?? '') : newProjectRoot.trim(),
+        conversation: '',
+      })
+      setNewProjectOpen(false)
+      setNewProjectName('')
+      setDrawerOpen(true)
+      notify(result.warnings.length === 0 ? '项目已创建' : result.warnings.join('；'))
       refresh()
     } catch (caught) {
       setError(errorText(caught))
@@ -605,6 +632,25 @@ export function TasksPanel(): ReactNode {
               ),
             ),
           ),
+          (() => {
+            const tags = [...new Set(projects.flatMap((project) => project.tags))].slice(0, 20)
+            if (tags.length === 0) return null
+            return h(
+              'div',
+              { className: 'project-drawer-tags' },
+              tags.map((tag) =>
+                h(
+                  'button',
+                  {
+                    key: tag,
+                    className: drawerTag === tag ? 'chip active' : 'chip',
+                    onClick: () => setDrawerTag(drawerTag === tag ? '' : tag),
+                  },
+                  `#${tag}`,
+                ),
+              ),
+            )
+          })(),
           h(
             'div',
             { className: 'project-drawer-list' },
@@ -612,6 +658,7 @@ export function TasksPanel(): ReactNode {
               .filter((project) =>
                 drawerStatus === 'all' ? project.status !== 'archived' : project.status === drawerStatus,
               )
+              .filter((project) => drawerTag === '' || project.tags.includes(drawerTag))
               .filter((project) => {
                 const needle = drawerQuery.trim().toLowerCase()
                 if (needle === '') return true
@@ -684,6 +731,41 @@ export function TasksPanel(): ReactNode {
               ),
           ),
           h('p', { className: 'small muted' }, '从邮件「加入项目」新建项目；这里用于查找和固定。'),
+        )
+      : null,
+    newProjectOpen
+      ? h(
+          Modal,
+          {
+            title: '新建项目',
+            onClose: () => setNewProjectOpen(false),
+            footer: h(
+              'div',
+              { className: 'task-editor-foot' },
+              h('span', { className: 'spacer' }),
+              h('button', { className: 'ghost', onClick: () => setNewProjectOpen(false) }, '取消'),
+              h(
+                'button',
+                {
+                  className: 'primary',
+                  disabled: busy || newProjectName.trim() === '',
+                  onClick: () => void createProject(),
+                },
+                '创建',
+              ),
+            ),
+          },
+          h('input', {
+            value: newProjectName,
+            autoFocus: true,
+            placeholder: '项目名称',
+            onChange: (event: { target: { value: string } }) => setNewProjectName(event.target.value),
+          }),
+          h('input', {
+            value: newProjectRoot,
+            placeholder: '项目目录（留空用默认）',
+            onChange: (event: { target: { value: string } }) => setNewProjectRoot(event.target.value),
+          }),
         )
       : null,
     drawerProject === null

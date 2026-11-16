@@ -3692,3 +3692,13 @@
   height: 28px;
   font-size: 11.5px;
 }
+
+.project-drawer-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.project-drawer > input[type='search'] {
+  flex: none;
+}
