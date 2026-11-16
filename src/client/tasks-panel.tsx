@@ -149,6 +149,7 @@ export function TasksPanel(): ReactNode {
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectRoot, setNewProjectRoot] = useState('')
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [drawerLoading, setDrawerLoading] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
   const [projectFilter, setProjectFilter] = useState('')
   const [error, setError] = useState('')
@@ -299,6 +300,32 @@ export function TasksPanel(): ReactNode {
     }
   }
 
+  const openDrawer = (): void => {
+    setDrawerOpen(true)
+    setDrawerLoading(true)
+    void api
+      .projects()
+      .then((result) => setProjects(result.items))
+      .catch(() => undefined)
+      .finally(() => setDrawerLoading(false))
+  }
+
+  const projectTags = [...new Set(projects.flatMap((project) => project.tags ?? []))].slice(0, 20)
+  const drawerProjects = projects
+    .filter((project) =>
+      drawerStatus === 'all' ? project.status !== 'archived' : project.status === drawerStatus,
+    )
+    .filter((project) => drawerTag === '' || (project.tags ?? []).includes(drawerTag))
+    .filter((project) => {
+      const needle = drawerQuery.trim().toLowerCase()
+      if (needle === '') return true
+      return `${project.name} ${(project.tags ?? []).join(' ')}`.toLowerCase().includes(needle)
+    })
+    .sort((left, right) => {
+      if (left.pinned !== right.pinned) return left.pinned ? -1 : 1
+      return (right.lastOpenedAt || right.updatedAt).localeCompare(left.lastOpenedAt || left.updatedAt)
+    })
+
   const createProject = async (): Promise<void> => {
     const name = newProjectName.trim()
     if (name === '' || accountId === null) return
@@ -356,7 +383,7 @@ export function TasksPanel(): ReactNode {
       ),
       h(
         'button',
-        { className: 'ghost', onClick: () => setDrawerOpen(true), title: '浏览项目' },
+        { className: 'ghost', onClick: openDrawer, title: '浏览项目' },
         h(Icon, { name: 'folder', size: 14 }),
         `项目 ${String(projects.length)}`,
       ),
@@ -623,9 +650,13 @@ export function TasksPanel(): ReactNode {
           h(
             'div',
             { className: 'project-drawer-head' },
-            h('strong', null, '项目'),
+            h('div', { className: 'project-drawer-title' }, '项目', h('span', null, String(projects.length))),
             h('span', { className: 'spacer' }),
-            h('button', { className: 'subtle small', onClick: () => setDrawerOpen(false) }, '关闭'),
+            h(
+              'button',
+              { className: 'subtle icon', 'aria-label': '关闭项目列表', onClick: () => setDrawerOpen(false) },
+              '✕',
+            ),
           ),
           h('input', {
             type: 'search',
@@ -637,8 +668,12 @@ export function TasksPanel(): ReactNode {
           h(
             'div',
             { className: 'project-drawer-tabs' },
-            (['all', 'active', 'paused', 'archived'] as const).map((value) =>
-              h(
+            (['all', 'active', 'paused', 'archived'] as const).map((value) => {
+              const count =
+                value === 'all'
+                  ? projects.filter((project) => project.status !== 'archived').length
+                  : projects.filter((project) => project.status === value).length
+              return h(
                 'button',
                 {
                   key: value,
@@ -652,108 +687,136 @@ export function TasksPanel(): ReactNode {
                     : value === 'paused'
                       ? '暂停'
                       : '已归档',
-              ),
-            ),
+                h('span', { className: 'chip-count' }, String(count)),
+              )
+            }),
           ),
-          (() => {
-            const tags = [...new Set(projects.flatMap((project) => project.tags))].slice(0, 20)
-            if (tags.length === 0) return null
-            return h(
-              'div',
-              { className: 'project-drawer-tags' },
-              tags.map((tag) =>
-                h(
-                  'button',
-                  {
-                    key: tag,
-                    className: drawerTag === tag ? 'chip active' : 'chip',
-                    onClick: () => setDrawerTag(drawerTag === tag ? '' : tag),
-                  },
-                  `#${tag}`,
+          projectTags.length === 0
+            ? null
+            : h(
+                'div',
+                { className: 'project-drawer-tags' },
+                projectTags.map((tag) =>
+                  h(
+                    'button',
+                    {
+                      key: tag,
+                      className: drawerTag === tag ? 'chip active' : 'chip',
+                      onClick: () => setDrawerTag(drawerTag === tag ? '' : tag),
+                    },
+                    `#${tag}`,
+                  ),
                 ),
               ),
-            )
-          })(),
           h(
             'div',
             { className: 'project-drawer-list' },
-            projects
-              .filter((project) =>
-                drawerStatus === 'all' ? project.status !== 'archived' : project.status === drawerStatus,
-              )
-              .filter((project) => drawerTag === '' || project.tags.includes(drawerTag))
-              .filter((project) => {
-                const needle = drawerQuery.trim().toLowerCase()
-                if (needle === '') return true
-                return `${project.name} ${project.tags.join(' ')}`.toLowerCase().includes(needle)
-              })
-              .sort((left, right) => {
-                if (left.pinned !== right.pinned) return left.pinned ? -1 : 1
-                return (right.lastOpenedAt || right.updatedAt).localeCompare(
-                  left.lastOpenedAt || left.updatedAt,
-                )
-              })
-              .map((project) =>
-                h(
-                  'div',
-                  { key: project.id, className: 'project-drawer-row' },
-                  h(
-                    'button',
-                    {
-                      className: 'project-drawer-main',
-                      onClick: () => {
-                        void api
-                          .touchProject(project.id)
-                          .then((result) => {
-                            setProjects((items) =>
-                              items.map((item) => (item.id === project.id ? result.project : item)),
-                            )
-                            setDrawerProject(result.project)
-                          })
-                          .catch(() => setDrawerProject(project))
-                      },
-                    },
-                    h('strong', null, project.name),
+            drawerLoading
+              ? h('p', { className: 'small muted' }, '正在加载项目…')
+              : drawerProjects.length === 0
+                ? h(
+                    'div',
+                    { className: 'project-drawer-empty' },
                     h(
-                      'span',
+                      'p',
                       { className: 'small muted' },
-                      `${project.status === 'active' ? '进行中' : project.status === 'paused' ? '暂停' : project.status === 'done' ? '已完成' : '已归档'} · 待办 ${String(project.taskTodo ?? 0)} · 等待 ${String(project.taskWaiting ?? 0)} · 完成 ${String(project.taskDone ?? 0)}`,
+                      projects.length === 0 ? '还没有项目' : '没有匹配的项目',
+                    ),
+                    projects.length === 0
+                      ? null
+                      : h(
+                          'button',
+                          {
+                            className: 'ghost small',
+                            onClick: () => {
+                              setDrawerQuery('')
+                              setDrawerStatus('all')
+                              setDrawerTag('')
+                            },
+                          },
+                          '清除筛选',
+                        ),
+                  )
+                : drawerProjects.map((project) =>
+                    h(
+                      'div',
+                      { key: project.id, className: 'project-drawer-row' },
+                      h(
+                        'button',
+                        {
+                          className: 'project-drawer-main',
+                          onClick: () => {
+                            void api
+                              .touchProject(project.id)
+                              .then((result) => {
+                                setProjects((items) =>
+                                  items.map((item) => (item.id === project.id ? result.project : item)),
+                                )
+                                setDrawerProject(result.project)
+                              })
+                              .catch(() => setDrawerProject(project))
+                          },
+                        },
+                        h(
+                          'span',
+                          { className: 'project-drawer-line' },
+                          h('span', { className: `project-status-dot ${project.status}` }),
+                          h('strong', null, project.name),
+                          project.pinned ? h('span', { className: 'project-pin-mark' }, '★') : null,
+                        ),
+                        h(
+                          'span',
+                          { className: 'project-drawer-meta' },
+                          `${project.status === 'active' ? '进行中' : project.status === 'paused' ? '暂停' : project.status === 'done' ? '已完成' : '已归档'} · 待办 ${String(project.taskTodo ?? 0)} · 等待 ${String(project.taskWaiting ?? 0)} · 完成 ${String(project.taskDone ?? 0)}`,
+                        ),
+                      ),
+                      h(
+                        'button',
+                        {
+                          className: 'subtle icon',
+                          title: project.pinned ? '取消固定' : '固定项目',
+                          'aria-label': project.pinned ? '取消固定' : '固定项目',
+                          onClick: () => {
+                            void api
+                              .updateProject(project.id, { pinned: !project.pinned })
+                              .then((result) =>
+                                setProjects((items) =>
+                                  items.map((item) => (item.id === project.id ? result.project : item)),
+                                ),
+                              )
+                              .catch(() => undefined)
+                          },
+                        },
+                        project.pinned ? '★' : '☆',
+                      ),
+                      h(
+                        'button',
+                        {
+                          className: 'subtle small',
+                          title: '只看此项目的任务',
+                          onClick: () => {
+                            setProjectFilter(project.id)
+                            setDrawerOpen(false)
+                          },
+                        },
+                        '筛选',
+                      ),
                     ),
                   ),
-                  h(
-                    'button',
-                    {
-                      className: 'subtle small',
-                      title: project.pinned ? '取消固定' : '固定项目',
-                      onClick: () => {
-                        void api
-                          .updateProject(project.id, { pinned: !project.pinned })
-                          .then((result) =>
-                            setProjects((items) =>
-                              items.map((item) => (item.id === project.id ? result.project : item)),
-                            ),
-                          )
-                          .catch(() => undefined)
-                      },
-                    },
-                    project.pinned ? '★' : '☆',
-                  ),
-                  h(
-                    'button',
-                    {
-                      className: 'subtle small',
-                      title: '只看此项目的任务',
-                      onClick: () => {
-                        setProjectFilter(project.id)
-                        setDrawerOpen(false)
-                      },
-                    },
-                    '筛选',
-                  ),
-                ),
-              ),
           ),
-          h('p', { className: 'small muted' }, '从邮件「加入项目」新建项目；这里用于查找和固定。'),
+          h(
+            'button',
+            {
+              className: 'primary project-drawer-create',
+              onClick: () => {
+                setNewProjectName('')
+                setNewProjectRoot(state?.settings.projects.root ?? '')
+                setNewProjectOpen(true)
+              },
+            },
+            '＋ 新建项目',
+          ),
+          h('p', { className: 'task-hint' }, '从邮件「加入项目」也可以创建项目。'),
         )
       : null,
     paletteOpen
