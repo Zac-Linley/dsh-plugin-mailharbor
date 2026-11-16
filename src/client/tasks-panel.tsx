@@ -3,6 +3,7 @@ import type { AppState, Project, Task } from '../shared/types.js'
 import { api, ApiError } from './api.js'
 import { ErrorBar, Modal } from './components.js'
 import { ProjectDetail } from './project-detail.js'
+import { CommandPalette } from './command-palette.js'
 import { Icon } from './icons.js'
 import { requestOpenMail } from './nav.js'
 
@@ -147,6 +148,7 @@ export function TasksPanel(): ReactNode {
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectRoot, setNewProjectRoot] = useState('')
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
   const [projectFilter, setProjectFilter] = useState('')
   const [error, setError] = useState('')
@@ -182,6 +184,17 @@ export function TasksPanel(): ReactNode {
       cancelled = true
     }
   }, [accountId, tick])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPaletteOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const refresh = useCallback((): void => {
     setTick((value) => value + 1)
@@ -331,6 +344,16 @@ export function TasksPanel(): ReactNode {
             ),
           ),
       h('span', { className: 'spacer' }),
+      h(
+        'button',
+        {
+          className: 'ghost icon',
+          title: '搜索项目或任务（⌘K）',
+          'aria-label': '搜索项目或任务',
+          onClick: () => setPaletteOpen(true),
+        },
+        h(Icon, { name: 'search' }),
+      ),
       h(
         'button',
         { className: 'ghost', onClick: () => setDrawerOpen(true), title: '浏览项目' },
@@ -732,6 +755,34 @@ export function TasksPanel(): ReactNode {
           ),
           h('p', { className: 'small muted' }, '从邮件「加入项目」新建项目；这里用于查找和固定。'),
         )
+      : null,
+    paletteOpen
+      ? h(CommandPalette, {
+          projects,
+          tasks,
+          onClose: () => setPaletteOpen(false),
+          onProject: (project) => {
+            setPaletteOpen(false)
+            void api
+              .touchProject(project.id)
+              .then((result) => setDrawerProject(result.project))
+              .catch(() => setDrawerProject(project))
+          },
+          onTask: (task) => {
+            setPaletteOpen(false)
+            setEditing(task)
+          },
+          onNewTask: () => {
+            setPaletteOpen(false)
+            setCreating('TODO')
+          },
+          onNewProject: () => {
+            setPaletteOpen(false)
+            setNewProjectName('')
+            setNewProjectRoot(state?.settings.projects.root ?? '')
+            setNewProjectOpen(true)
+          },
+        })
       : null,
     newProjectOpen
       ? h(

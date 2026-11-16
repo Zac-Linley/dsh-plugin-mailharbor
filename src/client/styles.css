@@ -3702,3 +3702,37 @@
 .project-drawer > input[type='search'] {
   flex: none;
 }
+
+.command-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.command-section {
+  margin-top: 8px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--m-caption);
+}
+
+.command-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  text-align: left;
+}
+
+.command-row:hover {
+  background: var(--m-hover);
+}
+
+.command-row strong {
+  font-size: 12.5px;
+}
